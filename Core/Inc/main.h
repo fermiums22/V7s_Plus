@@ -79,6 +79,10 @@ void Error_Handler(void);
 #define MOTOR_L_ENABLE_PWM_GPIO_Port GPIOC
 #define Q24_Pin GPIO_PIN_8
 #define Q24_GPIO_Port GPIOA
+#define JP1_TX_Pin GPIO_PIN_9
+#define JP1_TX_GPIO_Port GPIOA
+#define JP1_RX_Pin GPIO_PIN_10
+#define JP1_RX_GPIO_Port GPIOA
 #define MOTOR_L_ENC_SIGNAL_Pin GPIO_PIN_3
 #define MOTOR_L_ENC_SIGNAL_GPIO_Port GPIOD
 #define MOTOR_L_PHASE_Pin GPIO_PIN_7
