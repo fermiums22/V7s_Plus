@@ -23,6 +23,26 @@
 - Nearby Q25 appears to be another node: one pin goes to D19 and one contact of J19, another path goes through R161 marked R100 to GND. Treat as a separate circuit until proven otherwise.
 - Powered test-point snapshot: TP3/TP24/TP57 = 24 V; TP49/TP48/TP55 = 5 V; TP74/TP34/TP56/TP37/TP39/TP38/TP35/TP36 = 3.3 V; TP1/TP2 = 0 V power-switch nodes; other checked testpoints = 0 V. See `docs/testpoints.csv`.
 - TP11, TP46, TP58, and TP71 ring together with J5/J14 encoder/sensor VCC. Treat as `ENC_VCC_COMMON`.
+- Additional wheel connector test point continuity: `TP20 = J5-1`, `TP19 = J5-2`, `TP18 = J5-4` with no external connection, `TP17 = J5-5`; mirrored right side: `TP51 = J14-1`, `TP50 = J14-2`, `TP47 = J14-4` with no external connection, `TP45 = J14-5`.
+- Right wheel encoder signal: `J14 pin 5` goes through RC/filter parts `R91` and `C57`; after `R91`, `C57` area rings/measures about 4.7 kOhm per user probing. The signal path turns toward `J16 pin 1`. `J16 pin 2` is GND; `J16 pin 3` goes elsewhere and may be power, but original J16 function is unknown. `C120` is also on/near the encoder signal by J16.
+- Left wheel encoder signal: `J5 pin 5` goes through resistor `R24` to STM32 `PD3`.
+- Live left wheel encoder test: with the left motor running, firmware polling on `PD3` counted encoder edges. Example RAM reads: `g_motor_l_enc_edges` increased from 15060 to 19783 over about 4.4 s, and `g_motor_l_enc_level` toggled 0/1. This confirms the left encoder signal is reaching STM32 `PD3`.
+- Left motor control module test: added `Core/Src/motor_control.c` / `Core/Inc/motor_control.h` with sensor power enable, PWM/phase output, nFAULT check, one-channel encoder polling, speed PI loop, and outer position loop. Test command `MotorControl_MoveRelative(-3500, 900)` was flashed and run on the left wheel. RAM telemetry after the move stayed at `position=-3500`, `speed=0`, `edges=3500`, `pwm=0`, confirming the position loop stopped at the requested encoder count.
+- Left wheel motor driver continuity: `PD8` rings to `U2 pin 1 nFAULT`.
+- Left wheel motor driver direction: `PB7` rings to `U2 pin 3 Phase`.
+- Left wheel motor driver control: `PC8` reaches `U2 pin 6 Enable` through a resistor.
+- Left wheel motor driver sleep/mode: `U2 pin 2 MODE1` and `U2 pin 5 nSLEEP` are tied together and go through a resistor to the same not-yet-powered sensor/encoder supply line (`ENC_VCC_COMMON` candidate). Earlier `MODE2 pin16` note was corrected to `MODE1 pin2`.
+- Left wheel motor driver current monitor: `U2 pin 15 VPROPI` rings to `PB1`.
+- Left wheel motor driver mode: `U2 pin 16 MODE2` is tied to GND.
+- `U10 pin 8` rings to `ENC_VCC_COMMON`. This means U10 VCC, if the LM293/LM393 pinout match is correct, is on the same not-yet-enabled encoder/sensor supply net rather than the always-on 3.3 V rail.
+- `U3` is also powered from `ENC_VCC_COMMON` per user probing. If the LM258-like pinout match is correct, this makes `U3 pin 8` VCC on the switched encoder/sensor/analog rail.
+- `Q20` is connected between the 5V rail and `ENC_VCC_COMMON` and is physically closer to the power-supply blocks. Treat Q20 as the likely 5V-to-ENC_VCC_COMMON power switch; its STM32/control path is still TBD.
+- `Q21` sits on the Q20 gate/control path through a resistor and also connects to GND. This strongly suggests Q21 is the low-side pull-down transistor that turns on the Q20 high-side switch. Trace Q21 gate/base next.
+- `PE5` was found as the STM32 control for Q21/Q20. Firmware label: `Q21_EN_ENC_VCC`. Setting PE5 high is expected to turn Q21 on, pull Q20 gate/control down, and raise `ENC_VCC_COMMON` from the 5V rail.
+- Live firmware test: with PE5 driven high in `USER CODE`, 5V appeared on `ENC_VCC_COMMON`. This confirms the enable path `PE5 -> Q21 -> Q20 -> ENC_VCC_COMMON`.
+- Motor control API was changed so external commands can use wheel units instead of raw encoder edges: position in wheel revolutions as `float` and speed in wheel rpm as `float`. Current provisional coefficient is `MOTOR_L_ENCODER_EDGES_PER_WHEEL_REV = 700.0f`; adjust this after measuring a known wheel rotation.
+- Left wheel encoder coefficient was visually adjusted to `MOTOR_L_ENCODER_EDGES_PER_WHEEL_REV = 1130.0f`. Wheel diameter for future robot speed control is recorded as `MOTOR_WHEEL_DIAMETER_M = 0.070f`; motor control now exposes linear distance/speed conversion in meters and m/s.
+- Wheel center-to-center distance is recorded as `MOTOR_WHEEL_BASE_M = 0.240f`. Differential turn helper formula added: wheel path for an in-place turn is `angle_rad * wheel_base / 2`; left and right wheels should move equal distances in opposite directions.
 - With battery connected, motor driver supply capacitors get power. Battery feeds the wheel motor drivers and Q8.
 - Power is enabled through the power switch in connector J1.
 - D18/D16/D9/D10 appear to form a diode-OR input network feeding U7 from J10 dock input, J1 reserve/external 24 V input, or battery through J1 when the switch is closed. See `docs/power-path.md`.

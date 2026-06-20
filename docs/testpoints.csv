@@ -15,6 +15,14 @@ TP38,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
 TP35,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
 TP36,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
 TP57,24V,VBUS_OR_RAW_24V,powered snapshot 2026-06-20,confirmed,
+TP17,,J5_PIN5_ENC_SIGNAL_CANDIDATE,continuity 2026-06-20,confirmed,"rings to J5 pin 5"
+TP18,,J5_PIN4_NC_EXTERNAL,continuity 2026-06-20,confirmed,"rings to J5 pin 4; no external connection"
+TP19,,J5_PIN2_MOTOR_A,continuity 2026-06-20,confirmed,"rings to J5 pin 2"
+TP20,,J5_PIN1_MOTOR_B,continuity 2026-06-20,confirmed,"rings to J5 pin 1"
+TP45,,J14_PIN5_ENCODER_SIGNAL_CANDIDATE,continuity 2026-06-20,confirmed,"rings to J14 pin 5"
+TP47,,J14_PIN4_NC_EXTERNAL,continuity 2026-06-20,confirmed,"rings to J14 pin 4; no external connection"
+TP50,,J14_PIN2_MOTOR_A,continuity 2026-06-20,confirmed,"rings to J14 pin 2"
+TP51,,J14_PIN1_MOTOR_B,continuity 2026-06-20,confirmed,"rings to J14 pin 1"
 U7_output,5V,5V_RAIL,powered/probed 2026-06-20,confirmed,"U7 confirmed as 5 V generator"
 U8_input,5V,5V_RAIL,powered/probed 2026-06-20,confirmed,"5 V input to U8"
 U8_output,3.3V,3V3_RAIL,powered/probed 2026-06-20,confirmed,"3.3 V output from U8; feeds U4 pin 8"

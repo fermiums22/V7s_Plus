@@ -49,6 +49,8 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -57,8 +59,20 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define Q21_EN_ENC_VCC_Pin GPIO_PIN_5
+#define Q21_EN_ENC_VCC_GPIO_Port GPIOE
+#define MOTOR_L_VPROPI_Pin GPIO_PIN_1
+#define MOTOR_L_VPROPI_GPIO_Port GPIOB
+#define MOTOR_L_NFAULT_Pin GPIO_PIN_8
+#define MOTOR_L_NFAULT_GPIO_Port GPIOD
+#define MOTOR_L_ENABLE_PWM_Pin GPIO_PIN_8
+#define MOTOR_L_ENABLE_PWM_GPIO_Port GPIOC
 #define Q24_Pin GPIO_PIN_8
 #define Q24_GPIO_Port GPIOA
+#define MOTOR_L_ENC_SIGNAL_Pin GPIO_PIN_3
+#define MOTOR_L_ENC_SIGNAL_GPIO_Port GPIOD
+#define MOTOR_L_PHASE_Pin GPIO_PIN_7
+#define MOTOR_L_PHASE_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

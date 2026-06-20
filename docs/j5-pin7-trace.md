@@ -47,6 +47,10 @@ Confirmed continuity:
 - `J5-7` rings to `TP58`.
 - `J5-7` rings to `J14` encoder/sensor VCC wire.
 - `TP11`, `TP46`, `TP58`, and `TP71` ring together and are part of the same `ENC_VCC_COMMON` net.
+- `Q20` is connected between 5V and `ENC_VCC_COMMON` and sits closer to the power-supply blocks; this is now the likely source/switch for the rail. The control path is still not traced.
+- `Q21` is tied to the Q20 gate/control node through a resistor and to GND, likely acting as the Q20 gate pull-down enable transistor. Q21 gate/base is the next control path to trace.
+- STM32 `PE5` drives Q21 gate/base. Firmware label: `Q21_EN_ENC_VCC`; PE5 high should enable Q20 and raise `ENC_VCC_COMMON`.
+- Live test confirmed: firmware drove PE5 high and 5V appeared on `ENC_VCC_COMMON`.
 
 Other exact bottom-side test pad identities still need continuity confirmation because the photos do not show a complete unbroken copper path from `J5-7` to every nearby pad.
 
