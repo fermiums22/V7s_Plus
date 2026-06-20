@@ -1,0 +1,12 @@
+refdes,marking,probable_part,function,status,datasheet,notes
+U2,DRV8801-like,DRV8801/DRV880x,wheel motor driver,probable,docs/datasheets/U2_U6_TI_DRV8801_DRV880x_motor_driver.pdf,"left wheel driver near J5; exact top mark unclear"
+U6,DRV8801-like,DRV8801/DRV880x,wheel motor driver,probable,docs/datasheets/U2_U6_TI_DRV8801_DRV880x_motor_driver.pdf,"right wheel driver near J14; exact top mark unclear"
+U7,54331,TPS54331-like,24V/raw to 5V buck regulator,confirmed,docs/datasheets/U7_TI_TPS54331_24V_to_5V_buck.pdf,"confirmed 5V generator"
+U8,99M7ERE,unknown 5V-to-3V3 regulator,3.3V regulator,behavior_confirmed,,"input 5V, output 3.3V; output feeds U4 pin 8; exact IC not identified"
+U3,258 G9929,LM258/LM358-family dual op-amp,analog conditioning / sense,probable,docs/datasheets/U3_U4_TI_LM158_LM258_LM358_dual_op_amp_alt.pdf,"marking 258 strongly suggests LM258-family"
+U4,ST logo; maybe G9884,LM258/LM358-family dual op-amp or similar,battery current/sense analog conditioning,probable,docs/datasheets/U3_U4_TI_LM158_LM258_LM358_dual_op_amp_alt.pdf,"pin4 GND, pin8 3.3V; marking unclear; U3 similarity supports op-amp hypothesis"
+U10,MZ847,unknown,power path / charge area unknown,unknown,,"SOT-8 near dock/power; no reliable datasheet match"
+Q8,FR9024N,IRFR9024N,P-channel MOSFET power switch,confirmed,docs/datasheets/Q8_Q18_Infineon_IRFR9024N_P_channel_MOSFET.pdf,"exact net/function TBD"
+Q18,FR9024,IRFR9024-family,P-channel MOSFET power switch,confirmed,docs/datasheets/Q8_Q18_Infineon_IRFR9024N_P_channel_MOSFET.pdf,"exact net/function TBD"
+Q24,unknown,unknown,unknown switch/control node,unknown,,"PA8 reaches Q24 area via R146; role not confirmed"
+Q25,unknown,unknown,unknown power/signal node,unknown,,"near D19/J19/R161; role not confirmed"

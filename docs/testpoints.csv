@@ -1,0 +1,21 @@
+testpoint,measured_voltage,net_or_guess,conditions,confidence,notes
+TP1,0V,power_switch_node,powered snapshot 2026-06-20,probable,"user note: power switch 0V"
+TP2,0V,power_switch_node,powered snapshot 2026-06-20,probable,"user note: power switch 0V"
+TP3,24V,VBUS_OR_RAW_24V,powered snapshot 2026-06-20,confirmed,
+TP24,24V,VBUS_OR_RAW_24V,powered snapshot 2026-06-20,confirmed,
+TP49,5V,5V_RAIL,powered snapshot 2026-06-20,confirmed,
+TP48,5V,5V_RAIL,powered snapshot 2026-06-20,confirmed,
+TP55,5V,5V_RAIL,powered snapshot 2026-06-20,confirmed,
+TP74,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
+TP34,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
+TP56,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
+TP37,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
+TP39,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
+TP38,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
+TP35,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
+TP36,3.3V,3V3_RAIL,powered snapshot 2026-06-20,confirmed,
+TP57,24V,VBUS_OR_RAW_24V,powered snapshot 2026-06-20,confirmed,
+U7_output,5V,5V_RAIL,powered/probed 2026-06-20,confirmed,"U7 confirmed as 5 V generator"
+U8_input,5V,5V_RAIL,powered/probed 2026-06-20,confirmed,"5 V input to U8"
+U8_output,3.3V,3V3_RAIL,powered/probed 2026-06-20,confirmed,"3.3 V output from U8; feeds U4 pin 8"
+other_TP,0V,unknown,powered snapshot 2026-06-20,unknown,"all other checked testpoints measured 0V per user note"
