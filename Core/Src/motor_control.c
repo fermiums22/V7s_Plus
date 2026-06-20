@@ -1,6 +1,7 @@
 #include "motor_control.h"
 
-#define MOTOR_PWM_TIMER_CHANNEL TIM_CHANNEL_3
+#define MOTOR_L_PWM_TIMER_CHANNEL TIM_CHANNEL_3
+#define MOTOR_R_PWM_TIMER_CHANNEL TIM_CHANNEL_1
 #define MOTOR_PWM_PERIOD_COUNTS 2399
 #define MOTOR_PWM_MIN_COUNTS 320
 #define MOTOR_CONTROL_PERIOD_MS 20
@@ -27,9 +28,17 @@ typedef struct
   int32_t max_position_speed_edges_per_s;
   int32_t speed_integral;
   int32_t last_position_edges;
+  MotorControlMode right_mode;
+  int32_t right_target_position_edges;
+  int32_t right_target_speed_edges_per_s;
+  int32_t right_max_position_speed_edges_per_s;
+  int32_t right_speed_integral;
+  int32_t right_last_position_edges;
   uint32_t last_control_tick_ms;
   GPIO_PinState last_encoder_state;
+  GPIO_PinState last_right_encoder_state;
   int8_t commanded_direction;
+  int8_t right_commanded_direction;
   uint8_t initialized;
 } MotorControlState;
 
@@ -38,6 +47,11 @@ volatile int32_t g_motor_l_speed_edges_per_s = 0;
 volatile uint32_t g_motor_l_enc_edges = 0;
 volatile uint8_t g_motor_l_enc_level = 0;
 volatile int16_t g_motor_l_pwm_command = 0;
+volatile int32_t g_motor_r_position_edges = 0;
+volatile int32_t g_motor_r_speed_edges_per_s = 0;
+volatile uint32_t g_motor_r_enc_edges = 0;
+volatile uint8_t g_motor_r_enc_level = 0;
+volatile int16_t g_motor_r_pwm_command = 0;
 
 static MotorControlState s_motor;
 
@@ -121,7 +135,7 @@ static void motor_apply_pwm(int16_t signed_pwm)
 
   if (duty == 0)
   {
-    __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_PWM_TIMER_CHANNEL, 0);
+    __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_L_PWM_TIMER_CHANNEL, 0);
     g_motor_l_pwm_command = 0;
     return;
   }
@@ -139,14 +153,44 @@ static void motor_apply_pwm(int16_t signed_pwm)
   }
 
   duty = clamp_i32(duty, MOTOR_PWM_MIN_COUNTS, MOTOR_PWM_PERIOD_COUNTS);
-  __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_PWM_TIMER_CHANNEL, (uint32_t)duty);
+  __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_L_PWM_TIMER_CHANNEL, (uint32_t)duty);
   g_motor_l_pwm_command = (int16_t)((s_motor.commanded_direction > 0) ? duty : -duty);
+}
+
+static void right_motor_apply_pwm(int16_t signed_pwm)
+{
+  int32_t duty = signed_pwm;
+
+  if (duty == 0)
+  {
+    __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_R_PWM_TIMER_CHANNEL, 0);
+    g_motor_r_pwm_command = 0;
+    return;
+  }
+
+  if (duty > 0)
+  {
+    HAL_GPIO_WritePin(MOTOR_R_PHASE_GPIO_Port, MOTOR_R_PHASE_Pin, GPIO_PIN_RESET);
+    s_motor.right_commanded_direction = 1;
+  }
+  else
+  {
+    HAL_GPIO_WritePin(MOTOR_R_PHASE_GPIO_Port, MOTOR_R_PHASE_Pin, GPIO_PIN_SET);
+    s_motor.right_commanded_direction = -1;
+    duty = -duty;
+  }
+
+  duty = clamp_i32(duty, MOTOR_PWM_MIN_COUNTS, MOTOR_PWM_PERIOD_COUNTS);
+  __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_R_PWM_TIMER_CHANNEL, (uint32_t)duty);
+  g_motor_r_pwm_command = (int16_t)((s_motor.right_commanded_direction > 0) ? duty : -duty);
 }
 
 static void encoder_poll(void)
 {
   GPIO_PinState enc_now = HAL_GPIO_ReadPin(MOTOR_L_ENC_SIGNAL_GPIO_Port, MOTOR_L_ENC_SIGNAL_Pin);
+  GPIO_PinState enc_r_now = HAL_GPIO_ReadPin(MOTOR_R_ENC_SIGNAL_GPIO_Port, MOTOR_R_ENC_SIGNAL_Pin);
   g_motor_l_enc_level = (uint8_t)enc_now;
+  g_motor_r_enc_level = (uint8_t)enc_r_now;
 
   if (enc_now != s_motor.last_encoder_state)
   {
@@ -154,13 +198,22 @@ static void encoder_poll(void)
     g_motor_l_enc_edges++;
     g_motor_l_position_edges += s_motor.commanded_direction;
   }
+
+  if (enc_r_now != s_motor.last_right_encoder_state)
+  {
+    s_motor.last_right_encoder_state = enc_r_now;
+    g_motor_r_enc_edges++;
+    g_motor_r_position_edges += s_motor.right_commanded_direction;
+  }
 }
 
 static void update_speed_estimate(uint32_t now_ms)
 {
   uint32_t elapsed_ms = now_ms - s_motor.last_control_tick_ms;
   int32_t position_now = g_motor_l_position_edges;
+  int32_t right_position_now = g_motor_r_position_edges;
   int32_t delta_edges;
+  int32_t right_delta_edges;
 
   if (elapsed_ms < MOTOR_CONTROL_PERIOD_MS)
   {
@@ -168,8 +221,11 @@ static void update_speed_estimate(uint32_t now_ms)
   }
 
   delta_edges = position_now - s_motor.last_position_edges;
+  right_delta_edges = right_position_now - s_motor.right_last_position_edges;
   g_motor_l_speed_edges_per_s = (delta_edges * 1000) / (int32_t)elapsed_ms;
+  g_motor_r_speed_edges_per_s = (right_delta_edges * 1000) / (int32_t)elapsed_ms;
   s_motor.last_position_edges = position_now;
+  s_motor.right_last_position_edges = right_position_now;
   s_motor.last_control_tick_ms = now_ms;
 }
 
@@ -178,6 +234,21 @@ static int32_t position_loop_target_speed(void)
   int32_t error = s_motor.target_position_edges - g_motor_l_position_edges;
   int32_t target_speed;
   int32_t max_speed = abs_i32(s_motor.max_position_speed_edges_per_s);
+
+  if (abs_i32(error) <= MOTOR_POSITION_TOLERANCE_EDGES)
+  {
+    return 0;
+  }
+
+  target_speed = error * MOTOR_POSITION_KP;
+  return clamp_i32(target_speed, -max_speed, max_speed);
+}
+
+static int32_t right_position_loop_target_speed(void)
+{
+  int32_t error = s_motor.right_target_position_edges - g_motor_r_position_edges;
+  int32_t target_speed;
+  int32_t max_speed = abs_i32(s_motor.right_max_position_speed_edges_per_s);
 
   if (abs_i32(error) <= MOTOR_POSITION_TOLERANCE_EDGES)
   {
@@ -209,6 +280,27 @@ static void speed_loop_apply(int32_t target_speed_edges_per_s)
   motor_apply_pwm((int16_t)output);
 }
 
+static void right_speed_loop_apply(int32_t target_speed_edges_per_s)
+{
+  int32_t error = target_speed_edges_per_s - g_motor_r_speed_edges_per_s;
+  int32_t output;
+
+  if (target_speed_edges_per_s == 0)
+  {
+    s_motor.right_speed_integral = 0;
+    right_motor_apply_pwm(0);
+    return;
+  }
+
+  s_motor.right_speed_integral = clamp_i32(s_motor.right_speed_integral + error,
+                                           -MOTOR_SPEED_INTEGRAL_LIMIT,
+                                           MOTOR_SPEED_INTEGRAL_LIMIT);
+  output = ((error * MOTOR_SPEED_KP_NUM) / MOTOR_SPEED_KP_DEN) +
+           (s_motor.right_speed_integral / MOTOR_SPEED_KI_DEN);
+  output = clamp_i32(output, -MOTOR_PWM_PERIOD_COUNTS, MOTOR_PWM_PERIOD_COUNTS);
+  right_motor_apply_pwm((int16_t)output);
+}
+
 void MotorControl_Init(TIM_HandleTypeDef *pwm_timer, ADC_HandleTypeDef *current_adc)
 {
   s_motor.pwm_timer = pwm_timer;
@@ -219,23 +311,35 @@ void MotorControl_Init(TIM_HandleTypeDef *pwm_timer, ADC_HandleTypeDef *current_
   s_motor.max_position_speed_edges_per_s = 0;
   s_motor.speed_integral = 0;
   s_motor.last_position_edges = 0;
+  s_motor.right_mode = MOTOR_CONTROL_MODE_OFF;
+  s_motor.right_target_position_edges = 0;
+  s_motor.right_target_speed_edges_per_s = 0;
+  s_motor.right_max_position_speed_edges_per_s = 0;
+  s_motor.right_speed_integral = 0;
+  s_motor.right_last_position_edges = 0;
   s_motor.last_control_tick_ms = HAL_GetTick();
   s_motor.commanded_direction = -1;
+  s_motor.right_commanded_direction = -1;
   s_motor.initialized = 1;
 
   sensor_power_set(1);
   HAL_GPIO_WritePin(Q24_GPIO_Port, Q24_Pin, GPIO_PIN_RESET);
   s_motor.last_encoder_state = HAL_GPIO_ReadPin(MOTOR_L_ENC_SIGNAL_GPIO_Port, MOTOR_L_ENC_SIGNAL_Pin);
+  s_motor.last_right_encoder_state = HAL_GPIO_ReadPin(MOTOR_R_ENC_SIGNAL_GPIO_Port, MOTOR_R_ENC_SIGNAL_Pin);
   g_motor_l_enc_level = (uint8_t)s_motor.last_encoder_state;
+  g_motor_r_enc_level = (uint8_t)s_motor.last_right_encoder_state;
 
-  __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_PWM_TIMER_CHANNEL, 0);
-  HAL_TIM_PWM_Start(s_motor.pwm_timer, MOTOR_PWM_TIMER_CHANNEL);
+  __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_L_PWM_TIMER_CHANNEL, 0);
+  __HAL_TIM_SET_COMPARE(s_motor.pwm_timer, MOTOR_R_PWM_TIMER_CHANNEL, 0);
+  HAL_TIM_PWM_Start(s_motor.pwm_timer, MOTOR_L_PWM_TIMER_CHANNEL);
+  HAL_TIM_PWM_Start(s_motor.pwm_timer, MOTOR_R_PWM_TIMER_CHANNEL);
 }
 
 void MotorControl_Task(void)
 {
   uint32_t now_ms;
   int32_t target_speed = 0;
+  int32_t right_target_speed = 0;
 
   if (!s_motor.initialized)
   {
@@ -251,7 +355,8 @@ void MotorControl_Task(void)
 
   update_speed_estimate(now_ms);
 
-  if (HAL_GPIO_ReadPin(MOTOR_L_NFAULT_GPIO_Port, MOTOR_L_NFAULT_Pin) == GPIO_PIN_RESET)
+  if ((HAL_GPIO_ReadPin(MOTOR_L_NFAULT_GPIO_Port, MOTOR_L_NFAULT_Pin) == GPIO_PIN_RESET) ||
+      (HAL_GPIO_ReadPin(MOTOR_R_NFAULT_GPIO_Port, MOTOR_R_NFAULT_Pin) == GPIO_PIN_RESET))
   {
     MotorControl_Stop();
     return;
@@ -277,6 +382,29 @@ void MotorControl_Task(void)
   }
 
   speed_loop_apply(target_speed);
+
+  if (s_motor.right_mode == MOTOR_CONTROL_MODE_POSITION)
+  {
+    right_target_speed = right_position_loop_target_speed();
+    s_motor.right_target_speed_edges_per_s = right_target_speed;
+    if (right_target_speed == 0 && abs_i32(g_motor_r_speed_edges_per_s) < 20)
+    {
+      s_motor.right_mode = MOTOR_CONTROL_MODE_OFF;
+      s_motor.right_speed_integral = 0;
+      right_motor_apply_pwm(0);
+      return;
+    }
+  }
+  else if (s_motor.right_mode == MOTOR_CONTROL_MODE_SPEED)
+  {
+    right_target_speed = s_motor.right_target_speed_edges_per_s;
+  }
+  else
+  {
+    right_target_speed = 0;
+  }
+
+  right_speed_loop_apply(right_target_speed);
 }
 
 void MotorControl_Stop(void)
@@ -287,8 +415,27 @@ void MotorControl_Stop(void)
   }
   s_motor.target_speed_edges_per_s = 0;
   s_motor.speed_integral = 0;
+  s_motor.right_target_speed_edges_per_s = 0;
+  s_motor.right_speed_integral = 0;
   motor_apply_pwm(0);
+  right_motor_apply_pwm(0);
   s_motor.mode = MOTOR_CONTROL_MODE_OFF;
+  s_motor.right_mode = MOTOR_CONTROL_MODE_OFF;
+}
+
+void MotorControl_SetRightTestPwm(int16_t signed_pwm)
+{
+  if (!s_motor.initialized)
+  {
+    return;
+  }
+
+  right_motor_apply_pwm(signed_pwm);
+}
+
+uint8_t MotorControl_IsRightBusy(void)
+{
+  return (s_motor.right_mode != MOTOR_CONTROL_MODE_OFF) ? 1U : 0U;
 }
 
 void MotorControl_SetSpeed(int32_t speed_edges_per_s)
@@ -328,6 +475,23 @@ void MotorControl_MoveWheelTo(float target_position_rev, float max_speed_rpm)
 void MotorControl_MoveWheelRelative(float delta_rev, float max_speed_rpm)
 {
   MotorControl_MoveRelative(rev_to_edges(delta_rev), rpm_to_edges_per_s(max_speed_rpm));
+}
+
+void MotorControl_MoveRightWheelTo(float target_position_rev, float max_speed_rpm)
+{
+  s_motor.right_target_position_edges = rev_to_edges(target_position_rev);
+  s_motor.right_max_position_speed_edges_per_s = rpm_to_edges_per_s(max_speed_rpm);
+  if (s_motor.right_max_position_speed_edges_per_s == 0)
+  {
+    s_motor.right_max_position_speed_edges_per_s = 500;
+  }
+  s_motor.right_speed_integral = 0;
+  s_motor.right_mode = MOTOR_CONTROL_MODE_POSITION;
+}
+
+void MotorControl_MoveRightWheelRelative(float delta_rev, float max_speed_rpm)
+{
+  MotorControl_MoveRightWheelTo(edges_to_rev(g_motor_r_position_edges) + delta_rev, max_speed_rpm);
 }
 
 void MotorControl_MoveLinearTo(float target_position_m, float max_speed_mps)

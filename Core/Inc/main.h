@@ -61,10 +61,20 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define Q21_EN_ENC_VCC_Pin GPIO_PIN_5
 #define Q21_EN_ENC_VCC_GPIO_Port GPIOE
+#define MOTOR_R_VPROPI_Pin GPIO_PIN_5
+#define MOTOR_R_VPROPI_GPIO_Port GPIOC
 #define MOTOR_L_VPROPI_Pin GPIO_PIN_1
 #define MOTOR_L_VPROPI_GPIO_Port GPIOB
+#define MOTOR_R_ENC_SIGNAL_Pin GPIO_PIN_8
+#define MOTOR_R_ENC_SIGNAL_GPIO_Port GPIOE
+#define MOTOR_R_PHASE_Pin GPIO_PIN_13
+#define MOTOR_R_PHASE_GPIO_Port GPIOE
 #define MOTOR_L_NFAULT_Pin GPIO_PIN_8
 #define MOTOR_L_NFAULT_GPIO_Port GPIOD
+#define MOTOR_R_NFAULT_Pin GPIO_PIN_14
+#define MOTOR_R_NFAULT_GPIO_Port GPIOD
+#define MOTOR_R_ENABLE_PWM_Pin GPIO_PIN_6
+#define MOTOR_R_ENABLE_PWM_GPIO_Port GPIOC
 #define MOTOR_L_ENABLE_PWM_Pin GPIO_PIN_8
 #define MOTOR_L_ENABLE_PWM_GPIO_Port GPIOC
 #define Q24_Pin GPIO_PIN_8

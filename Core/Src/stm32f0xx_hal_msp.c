@@ -96,10 +96,17 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     /* Peripheral clock enable */
     __HAL_RCC_ADC1_CLK_ENABLE();
 
+    __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     /**ADC GPIO Configuration
+    PC5     ------> ADC_IN15
     PB1     ------> ADC_IN9
     */
+    GPIO_InitStruct.Pin = MOTOR_R_VPROPI_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(MOTOR_R_VPROPI_GPIO_Port, &GPIO_InitStruct);
+
     GPIO_InitStruct.Pin = MOTOR_L_VPROPI_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -130,8 +137,11 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* hadc)
     __HAL_RCC_ADC1_CLK_DISABLE();
 
     /**ADC GPIO Configuration
+    PC5     ------> ADC_IN15
     PB1     ------> ADC_IN9
     */
+    HAL_GPIO_DeInit(MOTOR_R_VPROPI_GPIO_Port, MOTOR_R_VPROPI_Pin);
+
     HAL_GPIO_DeInit(MOTOR_L_VPROPI_GPIO_Port, MOTOR_L_VPROPI_Pin);
 
     /* USER CODE BEGIN ADC1_MspDeInit 1 */
@@ -175,14 +185,15 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* htim)
 
     __HAL_RCC_GPIOC_CLK_ENABLE();
     /**TIM3 GPIO Configuration
+    PC6     ------> TIM3_CH1
     PC8     ------> TIM3_CH3
     */
-    GPIO_InitStruct.Pin = MOTOR_L_ENABLE_PWM_Pin;
+    GPIO_InitStruct.Pin = MOTOR_R_ENABLE_PWM_Pin|MOTOR_L_ENABLE_PWM_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     GPIO_InitStruct.Alternate = GPIO_AF0_TIM3;
-    HAL_GPIO_Init(MOTOR_L_ENABLE_PWM_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
     /* USER CODE BEGIN TIM3_MspPostInit 1 */
 

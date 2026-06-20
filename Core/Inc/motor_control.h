@@ -48,10 +48,17 @@ extern volatile int32_t g_motor_l_speed_edges_per_s;
 extern volatile uint32_t g_motor_l_enc_edges;
 extern volatile uint8_t g_motor_l_enc_level;
 extern volatile int16_t g_motor_l_pwm_command;
+extern volatile int32_t g_motor_r_position_edges;
+extern volatile int32_t g_motor_r_speed_edges_per_s;
+extern volatile uint32_t g_motor_r_enc_edges;
+extern volatile uint8_t g_motor_r_enc_level;
+extern volatile int16_t g_motor_r_pwm_command;
 
 void MotorControl_Init(TIM_HandleTypeDef *pwm_timer, ADC_HandleTypeDef *current_adc);
 void MotorControl_Task(void);
 void MotorControl_Stop(void);
+void MotorControl_SetRightTestPwm(int16_t signed_pwm);
+uint8_t MotorControl_IsRightBusy(void);
 void MotorControl_SetSpeed(int32_t speed_edges_per_s);
 void MotorControl_SetWheelSpeed(float speed_rpm);
 void MotorControl_SetLinearSpeed(float speed_mps);
@@ -59,6 +66,8 @@ void MotorControl_MoveTo(int32_t target_position_edges, int32_t max_speed_edges_
 void MotorControl_MoveRelative(int32_t delta_edges, int32_t max_speed_edges_per_s);
 void MotorControl_MoveWheelTo(float target_position_rev, float max_speed_rpm);
 void MotorControl_MoveWheelRelative(float delta_rev, float max_speed_rpm);
+void MotorControl_MoveRightWheelTo(float target_position_rev, float max_speed_rpm);
+void MotorControl_MoveRightWheelRelative(float delta_rev, float max_speed_rpm);
 void MotorControl_MoveLinearTo(float target_position_m, float max_speed_mps);
 void MotorControl_MoveLinearRelative(float delta_m, float max_speed_mps);
 float MotorControl_RobotTurnWheelDistanceByDegrees(float angle_deg);

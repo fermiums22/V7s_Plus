@@ -32,8 +32,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define MOTOR_TEST_FORWARD_REV 1.0f
-#define MOTOR_TEST_SPEED_RPM 60.0f
+#define MOTOR_TEST_FORWARD_REV 2.0f
+#define MOTOR_TEST_BACKWARD_REV -2.0f
+#define MOTOR_TEST_SPEED_RPM 80.0f
+#define MOTOR_TEST_MOVE_TIMEOUT_MS 8000
+#define MOTOR_TEST_PAUSE_MS 700
 
 /* USER CODE END PD */
 
@@ -48,6 +51,8 @@ ADC_HandleTypeDef hadc;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
+static uint8_t s_motor_test_step = 0;
+static uint32_t s_motor_test_deadline_ms = 0;
 
 /* USER CODE END PV */
 
@@ -99,6 +104,9 @@ int main(void)
   /* USER CODE BEGIN 2 */
   MotorControl_Init(&htim3, &hadc);
   MotorControl_MoveWheelRelative(MOTOR_TEST_FORWARD_REV, MOTOR_TEST_SPEED_RPM);
+  MotorControl_MoveRightWheelRelative(MOTOR_TEST_FORWARD_REV, MOTOR_TEST_SPEED_RPM);
+  s_motor_test_step = 1;
+  s_motor_test_deadline_ms = HAL_GetTick() + MOTOR_TEST_MOVE_TIMEOUT_MS;
 
   /* USER CODE END 2 */
 
@@ -113,6 +121,42 @@ int main(void)
     MotorControlStatus motor_status;
     MotorControl_GetStatus(&motor_status);
 
+    if (s_motor_test_step == 1)
+    {
+      if ((motor_status.mode == MOTOR_CONTROL_MODE_OFF) && !MotorControl_IsRightBusy())
+      {
+        s_motor_test_step = 2;
+        s_motor_test_deadline_ms = HAL_GetTick() + MOTOR_TEST_PAUSE_MS;
+      }
+      else if ((int32_t)(HAL_GetTick() - s_motor_test_deadline_ms) >= 0)
+      {
+        MotorControl_Stop();
+        s_motor_test_step = 2;
+        s_motor_test_deadline_ms = HAL_GetTick() + MOTOR_TEST_PAUSE_MS;
+      }
+    }
+    else if (s_motor_test_step == 2)
+    {
+      if ((int32_t)(HAL_GetTick() - s_motor_test_deadline_ms) >= 0)
+      {
+        MotorControl_MoveWheelRelative(MOTOR_TEST_BACKWARD_REV, MOTOR_TEST_SPEED_RPM);
+        MotorControl_MoveRightWheelRelative(MOTOR_TEST_BACKWARD_REV, MOTOR_TEST_SPEED_RPM);
+        s_motor_test_step = 3;
+        s_motor_test_deadline_ms = HAL_GetTick() + MOTOR_TEST_MOVE_TIMEOUT_MS;
+      }
+    }
+    else if (s_motor_test_step == 3)
+    {
+      if ((motor_status.mode == MOTOR_CONTROL_MODE_OFF) && !MotorControl_IsRightBusy())
+      {
+        s_motor_test_step = 4;
+      }
+      else if ((int32_t)(HAL_GetTick() - s_motor_test_deadline_ms) >= 0)
+      {
+        MotorControl_Stop();
+        s_motor_test_step = 4;
+      }
+    }
   }
   /* USER CODE END 3 */
 }
@@ -204,6 +248,14 @@ static void MX_ADC_Init(void)
   {
     Error_Handler();
   }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_15;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN ADC_Init 2 */
 
   /* USER CODE END ADC_Init 2 */
@@ -248,6 +300,10 @@ static void MX_TIM3_Init(void)
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
@@ -274,13 +330,13 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(Q21_EN_ENC_VCC_GPIO_Port, Q21_EN_ENC_VCC_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, Q21_EN_ENC_VCC_Pin|MOTOR_R_PHASE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Q24_GPIO_Port, Q24_Pin, GPIO_PIN_SET);
@@ -288,15 +344,21 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(MOTOR_L_PHASE_GPIO_Port, MOTOR_L_PHASE_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : Q21_EN_ENC_VCC_Pin */
-  GPIO_InitStruct.Pin = Q21_EN_ENC_VCC_Pin;
+  /*Configure GPIO pins : Q21_EN_ENC_VCC_Pin MOTOR_R_PHASE_Pin */
+  GPIO_InitStruct.Pin = Q21_EN_ENC_VCC_Pin|MOTOR_R_PHASE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(Q21_EN_ENC_VCC_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : MOTOR_L_NFAULT_Pin MOTOR_L_ENC_SIGNAL_Pin */
-  GPIO_InitStruct.Pin = MOTOR_L_NFAULT_Pin|MOTOR_L_ENC_SIGNAL_Pin;
+  /*Configure GPIO pin : MOTOR_R_ENC_SIGNAL_Pin */
+  GPIO_InitStruct.Pin = MOTOR_R_ENC_SIGNAL_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(MOTOR_R_ENC_SIGNAL_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : MOTOR_L_NFAULT_Pin MOTOR_R_NFAULT_Pin MOTOR_L_ENC_SIGNAL_Pin */
+  GPIO_InitStruct.Pin = MOTOR_L_NFAULT_Pin|MOTOR_R_NFAULT_Pin|MOTOR_L_ENC_SIGNAL_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
