@@ -149,6 +149,29 @@ Because `J7` is now identified as the full front IR panel, the mechanical impact
 mostly on `J17` and `J2`. Confirm by moving the bumper by hand while watching voltage on the
 left/right optical limit outputs.
 
+## Front IR Panel (J7) - Characterization Result And Engine
+
+Measured the emit->receive transfer by sweeping the PB10 carrier 60 Hz..56 kHz and
+demodulating synchronously (carrier-off demod reads exactly 0, proving ambient rejection):
+
+- The path is a **band-pass peaking at ~1 kHz** (synchronous amplitude ~310 LSB):
+  - low end killed by the `C34`/`Q11` AC coupling on the emitter (high-pass, near zero by 125 Hz);
+  - high end killed by the receiver phototransistor (low-pass, -3 dB ~4 kHz, dead by 16 kHz).
+- This is why the original 10 kHz carrier was weak: far above the band.
+- The raw min-max ripple ("p2p") is misleading at low frequency (it catches the C34
+  differentiated edges); only the carrier-synchronous measurement gives the true shape.
+- This same driver topology is reused for the floor IR (`Q4`) and the buzzer (`Q17`),
+  so expect a similar band and reuse the 1 kHz synchronous approach there.
+
+Production engine (`Core/Src/front_ir_bumper.c`):
+
+- `TIM2_CH3` (PB10) in toggle mode at a 2 kHz timer rate -> clean 1 kHz, 50% carrier, run continuously.
+- `TIM2` TRGO = update (2 kHz) triggers the ADC at the centre of each carrier half-period.
+- ADC scans F/L/R (`ADC_IN5/IN8/IN13`); `DMA1_Channel1` circular stores samples; no CPU in the loop.
+- Per zone, `signal = mean(off-half) - mean(on-half)` = carrier-locked reflected IR; ambient cancels.
+- Verified on the bench: a palm on the left zone drove `L` from ~360 to ~2660 while `R`/`F` stayed at
+  baseline (per-zone obstacle direction works); on-level collapses (inverting path).
+
 ## Battery And Dock Checks
 
 - Battery current:

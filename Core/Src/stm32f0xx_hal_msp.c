@@ -98,20 +98,29 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     __HAL_RCC_ADC1_CLK_ENABLE();
 
     __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     /**ADC GPIO Configuration
+    PC3     ------> ADC_IN13
+    PA5     ------> ADC_IN5
     PC5     ------> ADC_IN15
+    PB0     ------> ADC_IN8
     PB1     ------> ADC_IN9
     */
-    GPIO_InitStruct.Pin = MOTOR_R_VPROPI_Pin;
+    GPIO_InitStruct.Pin = FRONT_IR_PANEL_R_SIGNAL_Pin|MOTOR_R_VPROPI_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(MOTOR_R_VPROPI_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-    GPIO_InitStruct.Pin = MOTOR_L_VPROPI_Pin;
+    GPIO_InitStruct.Pin = FRONT_IR_PANEL_F_SIGNAL_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(MOTOR_L_VPROPI_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(FRONT_IR_PANEL_F_SIGNAL_GPIO_Port, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = FRONT_IR_PANEL_L_SIGNAL_Pin|MOTOR_L_VPROPI_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     /* USER CODE BEGIN ADC1_MspInit 1 */
 
@@ -138,16 +147,44 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* hadc)
     __HAL_RCC_ADC1_CLK_DISABLE();
 
     /**ADC GPIO Configuration
+    PC3     ------> ADC_IN13
+    PA5     ------> ADC_IN5
     PC5     ------> ADC_IN15
+    PB0     ------> ADC_IN8
     PB1     ------> ADC_IN9
     */
-    HAL_GPIO_DeInit(MOTOR_R_VPROPI_GPIO_Port, MOTOR_R_VPROPI_Pin);
+    HAL_GPIO_DeInit(GPIOC, FRONT_IR_PANEL_R_SIGNAL_Pin|MOTOR_R_VPROPI_Pin);
 
-    HAL_GPIO_DeInit(MOTOR_L_VPROPI_GPIO_Port, MOTOR_L_VPROPI_Pin);
+    HAL_GPIO_DeInit(FRONT_IR_PANEL_F_SIGNAL_GPIO_Port, FRONT_IR_PANEL_F_SIGNAL_Pin);
+
+    HAL_GPIO_DeInit(GPIOB, FRONT_IR_PANEL_L_SIGNAL_Pin|MOTOR_L_VPROPI_Pin);
 
     /* USER CODE BEGIN ADC1_MspDeInit 1 */
 
     /* USER CODE END ADC1_MspDeInit 1 */
+  }
+
+}
+
+/**
+  * @brief TIM_OC MSP Initialization
+  * This function configures the hardware resources used in this example
+  * @param htim_oc: TIM_OC handle pointer
+  * @retval None
+  */
+void HAL_TIM_OC_MspInit(TIM_HandleTypeDef* htim_oc)
+{
+  if(htim_oc->Instance==TIM2)
+  {
+    /* USER CODE BEGIN TIM2_MspInit 0 */
+
+    /* USER CODE END TIM2_MspInit 0 */
+    /* Peripheral clock enable */
+    __HAL_RCC_TIM2_CLK_ENABLE();
+    /* USER CODE BEGIN TIM2_MspInit 1 */
+
+    /* USER CODE END TIM2_MspInit 1 */
+
   }
 
 }
@@ -202,6 +239,28 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* htim)
   }
 
 }
+/**
+  * @brief TIM_OC MSP De-Initialization
+  * This function freeze the hardware resources used in this example
+  * @param htim_oc: TIM_OC handle pointer
+  * @retval None
+  */
+void HAL_TIM_OC_MspDeInit(TIM_HandleTypeDef* htim_oc)
+{
+  if(htim_oc->Instance==TIM2)
+  {
+    /* USER CODE BEGIN TIM2_MspDeInit 0 */
+
+    /* USER CODE END TIM2_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_TIM2_CLK_DISABLE();
+    /* USER CODE BEGIN TIM2_MspDeInit 1 */
+
+    /* USER CODE END TIM2_MspDeInit 1 */
+  }
+
+}
+
 /**
   * @brief TIM_PWM MSP De-Initialization
   * This function freeze the hardware resources used in this example

@@ -22,6 +22,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "motor_control.h"
+#include "front_ir_bumper.h"
+#include "console.h"
+#include "cmd.h"
 
 /* USER CODE END Includes */
 
@@ -37,10 +40,7 @@
 #define MOTOR_TEST_SPEED_RPM 80.0f
 #define MOTOR_TEST_MOVE_TIMEOUT_MS 8000
 #define MOTOR_TEST_PAUSE_MS 700
-#define FRONT_IR_Q11_TEST_PWM_PERIOD_COUNTS 4800U
-#define FRONT_IR_Q11_TEST_PWM_PULSE_COUNTS 0U
-#define FRONT_IR_Q11_TEST_BURST_PERIOD_MS 20U
-#define FRONT_IR_Q11_TEST_BURST_ON_MS 0U
+#define MOTOR_TEST_ENABLE 0
 
 /* USER CODE END PD */
 
@@ -52,14 +52,17 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
+#if MOTOR_TEST_ENABLE
 static uint8_t s_motor_test_step = 0;
 static uint32_t s_motor_test_deadline_ms = 0;
+#endif
 
 /* USER CODE END PV */
 
@@ -68,48 +71,15 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC_Init(void);
+static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
-static void FrontIrQ11TestPwm_Init(void);
-static void FrontIrQ11TestBurst_Task(void);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void FrontIrQ11TestPwm_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  __HAL_RCC_TIM2_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  GPIO_InitStruct.Pin = FRONT_IR_Q11_TEST_PULSE_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF2_TIM2;
-  HAL_GPIO_Init(FRONT_IR_Q11_TEST_PULSE_GPIO_Port, &GPIO_InitStruct);
-
-  TIM2->CR1 = 0;
-  TIM2->PSC = 0;
-  TIM2->ARR = FRONT_IR_Q11_TEST_PWM_PERIOD_COUNTS - 1U;
-  TIM2->CCR3 = FRONT_IR_Q11_TEST_PWM_PULSE_COUNTS;
-  TIM2->CCMR2 = (TIM_CCMR2_OC3PE | (6U << TIM_CCMR2_OC3M_Pos));
-  TIM2->CCER = TIM_CCER_CC3E;
-  TIM2->EGR = TIM_EGR_UG;
-  TIM2->CR1 = TIM_CR1_ARPE | TIM_CR1_CEN;
-}
-
-static void FrontIrQ11TestBurst_Task(void)
-{
-  uint32_t phase_ms = HAL_GetTick() % FRONT_IR_Q11_TEST_BURST_PERIOD_MS;
-
-  TIM2->CCR3 = (phase_ms < FRONT_IR_Q11_TEST_BURST_ON_MS)
-      ? FRONT_IR_Q11_TEST_PWM_PULSE_COUNTS
-      : 0U;
-}
 
 /* USER CODE END 0 */
 
@@ -144,16 +114,22 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC_Init();
+  MX_TIM2_Init();
   MX_TIM3_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  HAL_GPIO_WritePin(FRONT_IR_SENSOR_3V3_EN_GPIO_Port, FRONT_IR_SENSOR_3V3_EN_Pin, GPIO_PIN_RESET);
-  FrontIrQ11TestPwm_Init();
+#if MOTOR_TEST_ENABLE
   MotorControl_Init(&htim3, &hadc);
   MotorControl_MoveWheelRelative(MOTOR_TEST_FORWARD_REV, MOTOR_TEST_SPEED_RPM);
   MotorControl_MoveRightWheelRelative(MOTOR_TEST_FORWARD_REV, MOTOR_TEST_SPEED_RPM);
   s_motor_test_step = 1;
   s_motor_test_deadline_ms = HAL_GetTick() + MOTOR_TEST_MOVE_TIMEOUT_MS;
+#else
+  FrontIrBumper_Init(&hadc, &htim2);
+  Console_Init();   /* USART1 (JP1) RX DMA ring + IRQ-driven TX ring */
+  Cmd_Init();
+  Cmd_Banner();
+#endif
 
   /* USER CODE END 2 */
 
@@ -164,7 +140,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    FrontIrQ11TestBurst_Task();
+#if MOTOR_TEST_ENABLE
     MotorControl_Task();
     MotorControlStatus motor_status;
     MotorControl_GetStatus(&motor_status);
@@ -205,6 +181,14 @@ int main(void)
         s_motor_test_step = 4;
       }
     }
+#else
+    FrontIrBumper_Task();
+    {
+      uint8_t rx_c; int rx_port;
+      while (Console_ReadByte(&rx_c, &rx_port)) Cmd_FeedByte(rx_port, (char)rx_c);
+      Cmd_StreamTask();
+    }
+#endif
   }
   /* USER CODE END 3 */
 }
@@ -285,8 +269,8 @@ static void MX_ADC_Init(void)
   hadc.Init.LowPowerAutoPowerOff = DISABLE;
   hadc.Init.ContinuousConvMode = DISABLE;
   hadc.Init.DiscontinuousConvMode = DISABLE;
-  hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_TRGO;
+  hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc.Init.DMAContinuousRequests = DISABLE;
   hadc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   if (HAL_ADC_Init(&hadc) != HAL_OK)
@@ -296,9 +280,33 @@ static void MX_ADC_Init(void)
 
   /** Configure for the selected ADC regular channel to be converted.
   */
-  sConfig.Channel = ADC_CHANNEL_9;
+  sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
   sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_8;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_9;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_13;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -314,6 +322,54 @@ static void MX_ADC_Init(void)
   /* USER CODE BEGIN ADC_Init 2 */
 
   /* USER CODE END ADC_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 23999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_OC_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
+  sConfigOC.Pulse = 12000;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -386,7 +442,7 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 926000;
+  huart1.Init.BaudRate = 921600;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
@@ -437,15 +493,15 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, SWITCHED_SENSOR_5V_EN_Pin|FRONT_IR_SENSOR_3V3_EN_Pin|MOTOR_R_PHASE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, FRONT_IR_Q11_TEST_PULSE_Pin|MOTOR_L_PHASE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, FRONT_IR_Q11_PULSE_Pin|MOTOR_L_PHASE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Q24_GPIO_Port, Q24_Pin, GPIO_PIN_SET);
@@ -463,8 +519,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(MOTOR_R_ENC_SIGNAL_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : FRONT_IR_Q11_TEST_PULSE_Pin MOTOR_L_PHASE_Pin */
-  GPIO_InitStruct.Pin = FRONT_IR_Q11_TEST_PULSE_Pin|MOTOR_L_PHASE_Pin;
+  /*Configure GPIO pins : FRONT_IR_Q11_PULSE_Pin MOTOR_L_PHASE_Pin */
+  GPIO_InitStruct.Pin = FRONT_IR_Q11_PULSE_Pin|MOTOR_L_PHASE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

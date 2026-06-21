@@ -25,7 +25,7 @@ Update the status after every continuity or powered test.
 
 | Order | Status | Connector / node | Function | Next exact check |
 |---|---|---|---|---|
-| 1 | probing | `J7` | front 8-pin IR navigation panel | map pin count/order, GND, VCC, LED-drive pins, receiver outputs |
+| 1 | firmware-ready | `J7` | front 8-pin IR navigation panel | DONE: 3 zones R/F/L (PC3/PA5/PB0 = ADC IN13/IN5/IN8). Driver `front_ir_bumper.c`: 1 kHz toggle carrier on PB10/TIM2_CH3, TIM2 TRGO triggers ADC, DMA1_Ch1 circular, synchronous off-on demod. Detects obstacle per-zone, rejects ambient. Next: threshold/event logic |
 | 2 | unknown | `J20` + `U10` | black/white optical position wheel | ring J20 pins to U10 pins; find U10 output to STM32 |
 | 3 | unknown | onboard front IR receivers | front-left/front-right dock beacon receivers | identify part pins, VCC/GND/OUT, output destination |
 | 4 | unknown | `J17` | left side IR + optical bumper limit + IR receiver | map GND/VCC and three sub-signals |
@@ -34,7 +34,7 @@ Update the status after every continuity or powered test.
 | 7 | unknown | `J3` | front right IR sensor | map VCC/GND/emitter/sense pins |
 | 8 | unknown | `J4` | front left IR sensor | map VCC/GND/emitter/sense pins |
 | 9 | unknown | `J12` | touch button with RGB backlight | map VCC/GND/touch/R/G/B or serial/controller lines |
-| 10 | unknown | buzzer | sounder / beeper | identify part pins, driver transistor, and STM32 control pin |
+| 10 | mapped | buzzer (`Q17` / `BUZZER1`) | sounder / beeper | driver `Q17` (same current-driver topology + 10 ohm shunt as front IR LED drivers); control to `PA11` via RC. Next: confirm magnetic vs piezo, then drive `PA11` as timer PWM for tones |
 | 11 | unknown | `U4`, `R72/R73` | battery current / voltage monitor | trace U4 outputs pin 1/pin 7 to STM32 or power logic |
 | 12 | unknown | dock contacts / charge path | dock/base charge detect | find divider/comparator output that changes with dock voltage |
 
