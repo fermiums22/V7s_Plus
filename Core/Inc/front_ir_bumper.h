@@ -49,6 +49,11 @@ void FrontIrBumper_Init(ADC_HandleTypeDef *receiver_adc, TIM_HandleTypeDef *carr
 /* Run once per main-loop iteration; performs one lock-in measurement per period. */
 void FrontIrBumper_Task(void);
 
+/* Enable/disable the Q11 IR carrier (PB10). on=1 runs the 1 kHz carrier (normal);
+ * on=0 stops it and holds PB10 low, killing the IR illumination - used to test
+ * which emitters are fed from the shared Q11 illumination. */
+void FrontIrBumper_SetIllumination(int on);
+
 #ifdef __cplusplus
 }
 #endif

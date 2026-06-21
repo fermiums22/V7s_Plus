@@ -19,6 +19,9 @@
 #include "cmd.h"
 #include "console.h"
 #include "front_ir_bumper.h"
+#include "buzzer.h"
+#include "cliff_ir.h"
+#include "motor_control.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,7 +69,7 @@ void Cmd_Banner(void)
   Console_Print("    #     #####   ###  s+\r\n");
   Console_Print("=====================================\r\n");
   Console_Print("  V7s Plus robot base (STM32F071)\r\n");
-  Console_Print("  front IR bumper: proximity + approach\r\n");
+  Console_Print("  wheels | IR bumper | cliff | hit | buzzer\r\n");
   Console_Print("=====================================\r\n");
   Console_Print("Type 'help'.\r\n");
 }
@@ -86,10 +89,18 @@ static void cmd_help(void)
   Console_Print("  help                 - this help\r\n");
   Console_Print("  logo                 - show the banner\r\n");
   Console_Print("  status / ir          - front IR zones: signal(proximity) + rate(approach)\r\n");
+  Console_Print("  cliff                - 4 cliff + side IR: signal + rate (right=PA3 live)\r\n");
+  Console_Print("  fwd|back [rev]        - roll both wheels N revs (default 1) @80rpm\r\n");
+  Console_Print("  mstop                - stop the wheels\r\n");
+  Console_Print("  hit                  - right bumper-hit (PE12) + right base IR (PE6)\r\n");
   Console_Print("  ir on|off [Hz]       - stream the IR telemetry (alias of stream)\r\n");
   Console_Print("  stream on|off [Hz]   - IR,<ms>,<R>,<F>,<L>,<dR>,<dF>,<dL>  (sig + rate)\r\n");
   Console_Print("  thr [near] [move]    - get/set NEAR signal + MOVE rate thresholds\r\n");
   Console_Print("  rate <ms>            - stream period (alt to [Hz])\r\n");
+  Console_Print("  play [name|n]        - play an 8-bit melody (no arg = list)\r\n");
+  Console_Print("  beep [Hz] [ms]       - single tone (default 1000 Hz, 120 ms)\r\n");
+  Console_Print("  stop                 - silence the buzzer\r\n");
+  Console_Print("  illum on|off         - shared Q11/PB10 IR illumination carrier on/off\r\n");
   Console_Print("  reset | reboot       - restart\r\n");
   Console_Print("  (Up/Down = history; Ctrl+C / Ctrl+Z = stop stream)\r\n");
 }
@@ -103,6 +114,19 @@ static void cmd_ir_once(void)
            ls, lr, zone_verdict(ls, lr),
            fs, fr, zone_verdict(fs, fr),
            rs, rr, zone_verdict(rs, rr));
+  Console_Print(b);
+}
+
+static void cmd_cliff_once(void)
+{
+  char b[160];
+  snprintf(b, sizeof b,
+           "CLIFF FL=%d(%+d) FR=%d(%+d) RR=%d(%+d) | LL=%d(%+d) SIDE=%d(%+d)\r\n",
+           g_cliff_signal[CLIFF_FRONT_L], g_cliff_rate[CLIFF_FRONT_L],
+           g_cliff_signal[CLIFF_FRONT_R], g_cliff_rate[CLIFF_FRONT_R],
+           g_cliff_signal[CLIFF_RIGHT],   g_cliff_rate[CLIFF_RIGHT],
+           g_cliff_signal[CLIFF_LEFT],    g_cliff_rate[CLIFF_LEFT],
+           g_cliff_signal[SIDE_IR],       g_cliff_rate[SIDE_IR]);
   Console_Print(b);
 }
 
@@ -141,6 +165,7 @@ static void cmd_dispatch(char *line)
   if (!strcmp(cmd, "help"))   { cmd_help();   return; }
   if (!strcmp(cmd, "logo"))   { Cmd_Banner(); return; }
   if (!strcmp(cmd, "status")) { cmd_status(); return; }
+  if (!strcmp(cmd, "cliff"))  { cmd_cliff_once(); return; }
 
   if (!strcmp(cmd, "reset") || !strcmp(cmd, "reboot"))
   {
@@ -187,6 +212,78 @@ static void cmd_dispatch(char *line)
     if (r < 1) r = 1;
     g_cur->stream_rate = (uint32_t)r;
     snprintf(b, sizeof b, "OK rate %ld ms\r\n", r); Console_Print(b);
+    return;
+  }
+
+  if (!strcmp(cmd, "play"))
+  {
+    if (!arg)
+    {
+      Console_Print("melodies:");
+      for (int i = 0; i < Buzzer_MelodyCount(); i++)
+      { Console_Print(" "); Console_Print(Buzzer_MelodyName(i)); }
+      Console_Print("\r\n");
+      return;
+    }
+    int mi = Buzzer_MelodyByName(arg);
+    if (mi < 0)
+    {
+      long n = strtol(arg, NULL, 10);
+      if (n >= 0 && n < Buzzer_MelodyCount() && (arg[0] >= '0' && arg[0] <= '9')) mi = (int)n;
+    }
+    if (mi < 0) { Console_Print("ERR no such melody (try 'play')\r\n"); return; }
+    Buzzer_Play((BuzzerMelody)mi);
+    snprintf(b, sizeof b, "OK play %s\r\n", Buzzer_MelodyName(mi)); Console_Print(b);
+    return;
+  }
+
+  if (!strcmp(cmd, "beep"))
+  {
+    long f = 1000, ms = 120;
+    if (arg)
+    {
+      f = strtol(arg, NULL, 10);
+      char *p2 = strtok(NULL, " \t");
+      if (p2) ms = strtol(p2, NULL, 10);
+    }
+    if (f < 50)   f = 50;
+    if (f > 5000) f = 5000;
+    if (ms < 1)    ms = 1;
+    if (ms > 5000) ms = 5000;
+    Buzzer_Tone((uint16_t)f, (uint16_t)ms);
+    snprintf(b, sizeof b, "OK beep %ldHz %ldms\r\n", f, ms); Console_Print(b);
+    return;
+  }
+
+  if (!strcmp(cmd, "stop")) { Buzzer_Stop(); Console_Print("OK stop\r\n"); return; }
+
+  if (!strcmp(cmd, "illum"))   /* Q11 IR illumination carrier (PB10) on/off */
+  {
+    if (arg && !strcmp(arg, "on"))  { FrontIrBumper_SetIllumination(1); Console_Print("OK illum: Q11 carrier ON\r\n"); return; }
+    if (arg && !strcmp(arg, "off")) { FrontIrBumper_SetIllumination(0); Console_Print("OK illum: Q11 carrier OFF (PB10 low) - measure shunts\r\n"); return; }
+    Console_Print("ERR illum on|off  (Q11/PB10 shared IR illumination carrier)\r\n");
+    return;
+  }
+
+  if (!strcmp(cmd, "fwd") || !strcmp(cmd, "back"))   /* roll both wheels N revs */
+  {
+    long revs = 1;
+    if (arg) { long v = strtol(arg, NULL, 10); if (v >= 1 && v <= 50) revs = v; }
+    float d = (cmd[0] == 'b') ? -(float)revs : (float)revs;
+    MotorControl_MoveWheelRelative(d, 80.0f);
+    MotorControl_MoveRightWheelRelative(d, 80.0f);
+    snprintf(b, sizeof b, "OK %s %ld rev @80rpm ('mstop' to halt)\r\n", cmd, revs);
+    Console_Print(b);
+    return;
+  }
+
+  if (!strcmp(cmd, "mstop")) { MotorControl_Stop(); Console_Print("OK motors stop\r\n"); return; }
+
+  if (!strcmp(cmd, "hit"))   /* right bumper-hit (PE12) + right base IR rx (PE6) */
+  {
+    snprintf(b, sizeof b, "HIT right(PE12)=%d | baseIR right(PE6)=%d  (idle high, active low)\r\n",
+             CliffIr_RightHit(), CliffIr_RightBaseIr());
+    Console_Print(b);
     return;
   }
 

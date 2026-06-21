@@ -93,6 +93,8 @@ void Error_Handler(void);
 #define JP1_TX_GPIO_Port GPIOA
 #define JP1_RX_Pin GPIO_PIN_10
 #define JP1_RX_GPIO_Port GPIOA
+#define BUZZER1_Q17_Pin GPIO_PIN_11
+#define BUZZER1_Q17_GPIO_Port GPIOA
 #define MOTOR_L_ENC_SIGNAL_Pin GPIO_PIN_3
 #define MOTOR_L_ENC_SIGNAL_GPIO_Port GPIOD
 #define MOTOR_L_PHASE_Pin GPIO_PIN_7

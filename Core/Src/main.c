@@ -25,6 +25,8 @@
 #include "front_ir_bumper.h"
 #include "console.h"
 #include "cmd.h"
+#include "buzzer.h"
+#include "cliff_ir.h"
 
 /* USER CODE END Includes */
 
@@ -126,9 +128,13 @@ int main(void)
   s_motor_test_deadline_ms = HAL_GetTick() + MOTOR_TEST_MOVE_TIMEOUT_MS;
 #else
   FrontIrBumper_Init(&hadc, &htim2);
+  CliffIr_Init();   /* cliff x4 + side IR data model; right cliff(PA3) live via front scan */
+  MotorControl_Init(&htim3, &hadc);  /* wheels: PWM TIM3 + encoders (ADC handle unused) */
   Console_Init();   /* USART1 (JP1) RX DMA ring + IRQ-driven TX ring */
   Cmd_Init();
   Cmd_Banner();
+  Buzzer_Init();    /* BUZZER1 on PA11 = TIM1_CH4 (driver-owned) */
+  Buzzer_Play(BUZZER_MELODY_BOOT);
 #endif
 
   /* USER CODE END 2 */
@@ -183,10 +189,13 @@ int main(void)
     }
 #else
     FrontIrBumper_Task();
+    CliffIr_Task();
+    MotorControl_Task();
     {
       uint8_t rx_c; int rx_port;
       while (Console_ReadByte(&rx_c, &rx_port)) Cmd_FeedByte(rx_port, (char)rx_c);
       Cmd_StreamTask();
+      Buzzer_Task();
     }
 #endif
   }
@@ -506,6 +515,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Q24_GPIO_Port, Q24_Pin, GPIO_PIN_SET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(BUZZER1_Q17_GPIO_Port, BUZZER1_Q17_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : SWITCHED_SENSOR_5V_EN_Pin FRONT_IR_SENSOR_3V3_EN_Pin MOTOR_R_PHASE_Pin */
   GPIO_InitStruct.Pin = SWITCHED_SENSOR_5V_EN_Pin|FRONT_IR_SENSOR_3V3_EN_Pin|MOTOR_R_PHASE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -538,6 +550,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(Q24_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : BUZZER1_Q17_Pin */
+  GPIO_InitStruct.Pin = BUZZER1_Q17_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(BUZZER1_Q17_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

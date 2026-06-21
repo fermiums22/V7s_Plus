@@ -1,4 +1,5 @@
 #include "front_ir_bumper.h"
+#include "cliff_ir.h"   /* publish the right-cliff demod (PA3) into the cliff model */
 
 /* Front IR panel (J7) production acquisition engine.
  *
@@ -30,13 +31,17 @@
 
 /* ADC scan: channels are converted in ascending channel-number order (forward
  * scan), so each DMA trigger stores [F, L, R]. */
+#define FRONT_IR_RCLIFF_ADC_CHANNEL ADC_CHANNEL_3  /* J2-4 right cliff -> PA3 */
 #define FRONT_IR_R_ADC_CHANNEL ADC_CHANNEL_13 /* J7-5 R -> PC3 */
 #define FRONT_IR_F_ADC_CHANNEL ADC_CHANNEL_5  /* J7-6 F -> PA5 */
 #define FRONT_IR_L_ADC_CHANNEL ADC_CHANNEL_8  /* J7-7 L -> PB0 */
-#define FRONT_IR_SCAN_CHANNELS 3U
-#define FRONT_IR_IDX_F 0U
-#define FRONT_IR_IDX_L 1U
-#define FRONT_IR_IDX_R 2U
+/* Forward scan converts in ASCENDING channel number: ch3, ch5, ch8, ch13.
+ * The right cliff rides the same Q11 carrier, so it demods just like F/L/R. */
+#define FRONT_IR_SCAN_CHANNELS 4U
+#define FRONT_IR_IDX_RCLIFF 0U /* ch3  -> PA3 right cliff */
+#define FRONT_IR_IDX_F 1U      /* ch5  -> PA5 */
+#define FRONT_IR_IDX_L 2U      /* ch8  -> PB0 */
+#define FRONT_IR_IDX_R 3U      /* ch13 -> PC3 */
 
 /* One half-buffer = PERIODS_PER_HALF carrier periods. Each period = 2 ADC
  * triggers (on-half + off-half), each trigger = FRONT_IR_SCAN_CHANNELS samples.
@@ -87,10 +92,22 @@ static void FrontIrBumper_AdcDmaInit(void)
   s_adc->Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   (void)HAL_ADC_Init(s_adc);
 
-  /* Select exactly F, L, R (drop the motor-current channels for this engine). */
+  /* PA3 = right cliff sense (J2:4 = ADC_IN3) as analog input. */
+  {
+    GPIO_InitTypeDef gpio_a3 = {0};
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    gpio_a3.Pin = GPIO_PIN_3;
+    gpio_a3.Mode = GPIO_MODE_ANALOG;
+    gpio_a3.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOA, &gpio_a3);
+  }
+
+  /* Select right-cliff + F, L, R (drop the motor-current channels for this engine). */
   s_adc->Instance->CHSELR = 0;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5; /* long sample = low noise; 3ch ~54us << 500us */
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5; /* long sample = low noise; 4ch ~72us << 500us */
+  sConfig.Channel = FRONT_IR_RCLIFF_ADC_CHANNEL;
+  (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_F_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_L_ADC_CHANNEL;
@@ -160,6 +177,7 @@ static void FrontIrBumper_DemodHalf(const uint16_t *half)
   {
     const uint16_t *s = &half[t * FRONT_IR_SCAN_CHANNELS];
     int32_t *acc = (t & 1U) ? b : a;
+    acc[FRONT_IR_IDX_RCLIFF] += s[FRONT_IR_IDX_RCLIFF];
     acc[FRONT_IR_IDX_F] += s[FRONT_IR_IDX_F];
     acc[FRONT_IR_IDX_L] += s[FRONT_IR_IDX_L];
     acc[FRONT_IR_IDX_R] += s[FRONT_IR_IDX_R];
@@ -184,6 +202,14 @@ static void FrontIrBumper_DemodHalf(const uint16_t *half)
   g_front_ir_r_off_adc = r_hi;
   g_front_ir_r_signal = (int16_t)(r_hi - r_lo);
 
+  /* Right cliff (PA3) rides the same carrier; same inverting demod, published
+   * into the cliff model (CliffIr_Task derives its rate). */
+  {
+    uint16_t rc_lo = (uint16_t)((a[FRONT_IR_IDX_RCLIFF] < b[FRONT_IR_IDX_RCLIFF] ? a[FRONT_IR_IDX_RCLIFF] : b[FRONT_IR_IDX_RCLIFF]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
+    uint16_t rc_hi = (uint16_t)((a[FRONT_IR_IDX_RCLIFF] > b[FRONT_IR_IDX_RCLIFF] ? a[FRONT_IR_IDX_RCLIFF] : b[FRONT_IR_IDX_RCLIFF]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
+    CliffIr_SetSignal(CLIFF_RIGHT, (int16_t)(rc_hi - rc_lo));
+  }
+
   /* Approach detection: change vs previous update. */
   g_front_ir_f_rate = (int16_t)(g_front_ir_f_signal - s_front_ir_f_prev);
   g_front_ir_l_rate = (int16_t)(g_front_ir_l_signal - s_front_ir_l_prev);
@@ -191,6 +217,32 @@ static void FrontIrBumper_DemodHalf(const uint16_t *half)
   s_front_ir_f_prev = g_front_ir_f_signal;
   s_front_ir_l_prev = g_front_ir_l_signal;
   s_front_ir_r_prev = g_front_ir_r_signal;
+}
+
+void FrontIrBumper_SetIllumination(int on)
+{
+  if (s_carrier_tim == NULL)
+  {
+    return;
+  }
+  if (on)
+  {
+    FrontIrBumper_CarrierPinInit();                 /* PB10 -> TIM2_CH3 AF */
+    (void)HAL_TIM_OC_Start(s_carrier_tim, FRONT_IR_CARRIER_CHANNEL);
+  }
+  else
+  {
+    GPIO_InitTypeDef g = {0};
+    (void)HAL_TIM_OC_Stop(s_carrier_tim, FRONT_IR_CARRIER_CHANNEL);
+    /* drive PB10 (Q11) low so the carrier is fully off (AC-coupled emitters die) */
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    g.Pin = GPIO_PIN_10;
+    g.Mode = GPIO_MODE_OUTPUT_PP;
+    g.Pull = GPIO_NOPULL;
+    g.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &g);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+  }
 }
 
 void FrontIrBumper_Task(void)
