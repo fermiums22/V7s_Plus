@@ -125,7 +125,7 @@ static float mps_to_rpm(float mps)
 
 static void sensor_power_set(uint8_t enabled)
 {
-  HAL_GPIO_WritePin(Q21_EN_ENC_VCC_GPIO_Port, Q21_EN_ENC_VCC_Pin,
+  HAL_GPIO_WritePin(SWITCHED_SENSOR_5V_EN_GPIO_Port, SWITCHED_SENSOR_5V_EN_Pin,
                     enabled ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 

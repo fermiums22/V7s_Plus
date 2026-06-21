@@ -59,16 +59,20 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define Q21_EN_ENC_VCC_Pin GPIO_PIN_5
-#define Q21_EN_ENC_VCC_GPIO_Port GPIOE
+#define SWITCHED_SENSOR_5V_EN_Pin GPIO_PIN_5
+#define SWITCHED_SENSOR_5V_EN_GPIO_Port GPIOE
 #define MOTOR_R_VPROPI_Pin GPIO_PIN_5
 #define MOTOR_R_VPROPI_GPIO_Port GPIOC
 #define MOTOR_L_VPROPI_Pin GPIO_PIN_1
 #define MOTOR_L_VPROPI_GPIO_Port GPIOB
+#define FRONT_IR_SENSOR_3V3_EN_Pin GPIO_PIN_7
+#define FRONT_IR_SENSOR_3V3_EN_GPIO_Port GPIOE
 #define MOTOR_R_ENC_SIGNAL_Pin GPIO_PIN_8
 #define MOTOR_R_ENC_SIGNAL_GPIO_Port GPIOE
 #define MOTOR_R_PHASE_Pin GPIO_PIN_13
 #define MOTOR_R_PHASE_GPIO_Port GPIOE
+#define FRONT_IR_Q11_TEST_PULSE_Pin GPIO_PIN_10
+#define FRONT_IR_Q11_TEST_PULSE_GPIO_Port GPIOB
 #define MOTOR_L_NFAULT_Pin GPIO_PIN_8
 #define MOTOR_L_NFAULT_GPIO_Port GPIOD
 #define MOTOR_R_NFAULT_Pin GPIO_PIN_14

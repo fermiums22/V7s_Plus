@@ -37,8 +37,8 @@ Treat this as a working schematic until diode orientation and exact nodes are co
 ## Encoder / Sensor Common Power Net
 
 - `J5-7`, `J14` encoder/sensor VCC, `TP11`, `TP46`, `TP58`, and `TP71` ring together.
-- This is the common encoder/sensor VCC candidate net: `ENC_VCC_COMMON`.
-- Its likely power switch is `Q20`: user probing found Q20 connected between 5V and `ENC_VCC_COMMON`. The Q20 control path / STM32 pin is still not traced.
-- Q20 is controlled through Q21; STM32 `PE5` drives Q21. PE5 high is expected to enable the 5V-to-`ENC_VCC_COMMON` switch.
-- Confirmed live: after firmware drove PE5 high, `ENC_VCC_COMMON` rose to 5V.
+- This is the common encoder/sensor VCC candidate net: `SWITCHED_SENSOR_5V`.
+- Its likely power switch is `Q20`: user probing found Q20 connected between 5V and `SWITCHED_SENSOR_5V`. The Q20 control path / STM32 pin is still not traced.
+- Q20 is controlled through Q21; STM32 `PE5` drives Q21. PE5 high is expected to enable the 5V-to-`SWITCHED_SENSOR_5V` switch.
+- Confirmed live: after firmware drove PE5 high, `SWITCHED_SENSOR_5V` rose to 5V.
 - `Q24` may be related to this area, but no clear Q24 voltage/function has been proven yet.

@@ -37,6 +37,10 @@
 #define MOTOR_TEST_SPEED_RPM 80.0f
 #define MOTOR_TEST_MOVE_TIMEOUT_MS 8000
 #define MOTOR_TEST_PAUSE_MS 700
+#define FRONT_IR_Q11_TEST_PWM_PERIOD_COUNTS 4800U
+#define FRONT_IR_Q11_TEST_PWM_PULSE_COUNTS 0U
+#define FRONT_IR_Q11_TEST_BURST_PERIOD_MS 20U
+#define FRONT_IR_Q11_TEST_BURST_ON_MS 0U
 
 /* USER CODE END PD */
 
@@ -67,11 +71,45 @@ static void MX_ADC_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
+static void FrontIrQ11TestPwm_Init(void);
+static void FrontIrQ11TestBurst_Task(void);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void FrontIrQ11TestPwm_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  __HAL_RCC_TIM2_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  GPIO_InitStruct.Pin = FRONT_IR_Q11_TEST_PULSE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF2_TIM2;
+  HAL_GPIO_Init(FRONT_IR_Q11_TEST_PULSE_GPIO_Port, &GPIO_InitStruct);
+
+  TIM2->CR1 = 0;
+  TIM2->PSC = 0;
+  TIM2->ARR = FRONT_IR_Q11_TEST_PWM_PERIOD_COUNTS - 1U;
+  TIM2->CCR3 = FRONT_IR_Q11_TEST_PWM_PULSE_COUNTS;
+  TIM2->CCMR2 = (TIM_CCMR2_OC3PE | (6U << TIM_CCMR2_OC3M_Pos));
+  TIM2->CCER = TIM_CCER_CC3E;
+  TIM2->EGR = TIM_EGR_UG;
+  TIM2->CR1 = TIM_CR1_ARPE | TIM_CR1_CEN;
+}
+
+static void FrontIrQ11TestBurst_Task(void)
+{
+  uint32_t phase_ms = HAL_GetTick() % FRONT_IR_Q11_TEST_BURST_PERIOD_MS;
+
+  TIM2->CCR3 = (phase_ms < FRONT_IR_Q11_TEST_BURST_ON_MS)
+      ? FRONT_IR_Q11_TEST_PWM_PULSE_COUNTS
+      : 0U;
+}
 
 /* USER CODE END 0 */
 
@@ -109,6 +147,8 @@ int main(void)
   MX_TIM3_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_GPIO_WritePin(FRONT_IR_SENSOR_3V3_EN_GPIO_Port, FRONT_IR_SENSOR_3V3_EN_Pin, GPIO_PIN_RESET);
+  FrontIrQ11TestPwm_Init();
   MotorControl_Init(&htim3, &hadc);
   MotorControl_MoveWheelRelative(MOTOR_TEST_FORWARD_REV, MOTOR_TEST_SPEED_RPM);
   MotorControl_MoveRightWheelRelative(MOTOR_TEST_FORWARD_REV, MOTOR_TEST_SPEED_RPM);
@@ -124,6 +164,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    FrontIrQ11TestBurst_Task();
     MotorControl_Task();
     MotorControlStatus motor_status;
     MotorControl_GetStatus(&motor_status);
@@ -401,16 +442,16 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, Q21_EN_ENC_VCC_Pin|MOTOR_R_PHASE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, SWITCHED_SENSOR_5V_EN_Pin|FRONT_IR_SENSOR_3V3_EN_Pin|MOTOR_R_PHASE_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, FRONT_IR_Q11_TEST_PULSE_Pin|MOTOR_L_PHASE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Q24_GPIO_Port, Q24_Pin, GPIO_PIN_SET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(MOTOR_L_PHASE_GPIO_Port, MOTOR_L_PHASE_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : Q21_EN_ENC_VCC_Pin MOTOR_R_PHASE_Pin */
-  GPIO_InitStruct.Pin = Q21_EN_ENC_VCC_Pin|MOTOR_R_PHASE_Pin;
+  /*Configure GPIO pins : SWITCHED_SENSOR_5V_EN_Pin FRONT_IR_SENSOR_3V3_EN_Pin MOTOR_R_PHASE_Pin */
+  GPIO_InitStruct.Pin = SWITCHED_SENSOR_5V_EN_Pin|FRONT_IR_SENSOR_3V3_EN_Pin|MOTOR_R_PHASE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -421,6 +462,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(MOTOR_R_ENC_SIGNAL_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : FRONT_IR_Q11_TEST_PULSE_Pin MOTOR_L_PHASE_Pin */
+  GPIO_InitStruct.Pin = FRONT_IR_Q11_TEST_PULSE_Pin|MOTOR_L_PHASE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : MOTOR_L_NFAULT_Pin MOTOR_R_NFAULT_Pin MOTOR_L_ENC_SIGNAL_Pin */
   GPIO_InitStruct.Pin = MOTOR_L_NFAULT_Pin|MOTOR_R_NFAULT_Pin|MOTOR_L_ENC_SIGNAL_Pin;
@@ -434,13 +482,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(Q24_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : MOTOR_L_PHASE_Pin */
-  GPIO_InitStruct.Pin = MOTOR_L_PHASE_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(MOTOR_L_PHASE_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
