@@ -42,6 +42,8 @@ typedef struct {
   bool     stream_on;
   uint32_t stream_rate;                 /* [ms] */
   uint32_t stream_last;
+  bool     batt_stream_on;              /* live PA7 battery-current mV stream */
+  uint32_t batt_stream_last;
 } cmd_ctx_t;
 
 static cmd_ctx_t g_ctx[NCON];
@@ -93,7 +95,9 @@ static void cmd_help(void)
   Console_Print("  status / ir          - front IR zones: signal(proximity) + rate(approach)\r\n");
   Console_Print("  cliff                - 4 cliff + side IR: signal + rate (all 5 live)\r\n");
   Console_Print("  baseir               - 5 dock-beacon IR rx: per-dir strength + dock dir\r\n");
-  Console_Print("  batt                 - battery current sense voltage at PA7 (adc + mV)\r\n");
+  Console_Print("  batt [on|Hz|off]     - PA7 battery-current mV/mA; on/Hz = live stream\r\n");
+  Console_Print("  vbat                 - PA2 battery-voltage sense (mV at pin)\r\n");
+  Console_Print("  vin                  - PA1 24V input/dock-rail sense (mV at pin)\r\n");
   Console_Print("  fwd|back [rev]        - roll both wheels N revs (default 1) @80rpm\r\n");
   Console_Print("  spin [rpm]           - RIGHT wheel continuous spin (default 60; brake by hand)\r\n");
   Console_Print("  mstop                - stop the wheels\r\n");
@@ -186,10 +190,41 @@ static void cmd_dispatch(char *line)
   if (!strcmp(cmd, "cliff"))  { cmd_cliff_once(); return; }
   if (!strcmp(cmd, "baseir")) { cmd_baseir_once(); return; }
 
-  if (!strcmp(cmd, "batt"))   /* PA7/ADC_IN7 = U4 OUT2 battery current sense voltage */
+  if (!strcmp(cmd, "batt"))   /* PA7/ADC_IN7 = U4 OUT2 battery current sense */
   {
-    snprintf(b, sizeof b, "BATT PA7 adc=%u  %u mV  (U4 OUT2 batt-current sense)\r\n",
-             (unsigned)g_batt_isense_adc, (unsigned)FrontIrBumper_BattMilliVolts());
+    if (arg && !strcmp(arg, "off")) { g_cur->batt_stream_on = false; Console_Print("OK batt stream off\r\n"); return; }
+    if (arg)                        /* "batt on [Hz]" or "batt <Hz>" -> live stream */
+    {
+      const char *hz = !strcmp(arg, "on") ? strtok(NULL, " \t") : arg;
+      if (hz && !set_rate_hz(hz)) { Console_Print("ERR rate must be 1..500 Hz\r\n"); return; }
+      g_cur->batt_stream_on = true;
+      g_cur->batt_stream_last = HAL_GetTick();
+      Console_Print("OK batt stream on (Ctrl+C to stop)\r\n");
+      return;
+    }
+    snprintf(b, sizeof b, "BATT PA7 adc=%u  %u mV  ~%d mA  (U4 OUT2 batt current)\r\n",
+             (unsigned)g_batt_isense_adc, (unsigned)FrontIrBumper_BattMilliVolts(),
+             FrontIrBumper_BattMilliAmps());
+    Console_Print(b);
+    return;
+  }
+
+  if (!strcmp(cmd, "vbat"))   /* PA2/ADC_IN2 = battery pack voltage (divider x7.868) */
+  {
+    uint32_t pack = FrontIrBumper_VbatPackMilliVolts();
+    snprintf(b, sizeof b, "VBAT PA2 %u mV pin  ~%lu.%02lu V pack\r\n",
+             (unsigned)FrontIrBumper_VbatPinMilliVolts(),
+             (unsigned long)(pack / 1000U), (unsigned long)((pack % 1000U) / 10U));
+    Console_Print(b);
+    return;
+  }
+
+  if (!strcmp(cmd, "vin"))    /* PA1/ADC_IN1 = 24V input/dock-rail (71.5k/8.2k divider) */
+  {
+    uint32_t rail = FrontIrBumper_VinRailMilliVolts();
+    snprintf(b, sizeof b, "VIN  PA1 %u mV pin  ~%lu.%01lu V rail (24V in; =dock/J10 via diode)\r\n",
+             (unsigned)FrontIrBumper_VinPinMilliVolts(),
+             (unsigned long)(rail / 1000U), (unsigned long)((rail % 1000U) / 100U));
     Console_Print(b);
     return;
   }
@@ -338,6 +373,8 @@ void Cmd_Init(void)
     g_ctx[i].stream_on   = false;
     g_ctx[i].stream_rate = 100;
     g_ctx[i].stream_last = 0;
+    g_ctx[i].batt_stream_on   = false;
+    g_ctx[i].batt_stream_last = 0;
     g_ctx[i].hist_count  = 0;
     g_ctx[i].hist_nav    = 0;
     g_ctx[i].esc_state   = 0;
@@ -384,7 +421,7 @@ static void feed_one(char c)
 
   if (c == 0x03 || c == 0x1A)            /* Ctrl+C / Ctrl+Z: stop stream */
   {
-    if (cx->stream_on) { cx->stream_on = false; Console_Print("\r\n[stream stopped]\r\n"); }
+    if (cx->stream_on || cx->batt_stream_on) { cx->stream_on = false; cx->batt_stream_on = false; Console_Print("\r\n[stream stopped]\r\n"); }
     cx->cmd_len = 0; cx->esc_state = 0;
     return;
   }
@@ -444,16 +481,27 @@ void Cmd_StreamTask(void)
   for (int p = 0; p < NCON; p++)
   {
     cmd_ctx_t *cx = &g_ctx[p];
-    if (!cx->stream_on) continue;
-    if ((now - cx->stream_last) < cx->stream_rate) continue;
-    cx->stream_last = now;
 
-    Console_Route(p);
-    snprintf(line, sizeof line, "IR,%lu,%d,%d,%d,%d,%d,%d\r\n",
-             (unsigned long)now,
-             g_front_ir_r_signal, g_front_ir_f_signal, g_front_ir_l_signal,
-             g_front_ir_r_rate,   g_front_ir_f_rate,   g_front_ir_l_rate);
-    Console_Stream(line);
+    if (cx->stream_on && (now - cx->stream_last) >= cx->stream_rate)
+    {
+      cx->stream_last = now;
+      Console_Route(p);
+      snprintf(line, sizeof line, "IR,%lu,%d,%d,%d,%d,%d,%d\r\n",
+               (unsigned long)now,
+               g_front_ir_r_signal, g_front_ir_f_signal, g_front_ir_l_signal,
+               g_front_ir_r_rate,   g_front_ir_f_rate,   g_front_ir_l_rate);
+      Console_Stream(line);
+    }
+
+    if (cx->batt_stream_on && (now - cx->batt_stream_last) >= cx->stream_rate)
+    {
+      cx->batt_stream_last = now;
+      Console_Route(p);
+      snprintf(line, sizeof line, "BATT  %4u mV  ~%4d mA   adc=%u\r\n",
+               (unsigned)FrontIrBumper_BattMilliVolts(), FrontIrBumper_BattMilliAmps(),
+               (unsigned)g_batt_isense_adc);
+      Console_Stream(line);
+    }
   }
   Console_Route(CONSOLE_BOTH);
 }

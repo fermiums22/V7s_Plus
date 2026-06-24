@@ -51,6 +51,56 @@ static inline uint16_t FrontIrBumper_BattMilliVolts(void)
   return (uint16_t)(((uint32_t)g_batt_isense_adc * 3300U) / 4095U);
 }
 
+/* Battery current in mA from the PA7 voltage. 4-point bench calibration
+ * (2026-06-24): mV = 1180 + 488*I[A]  =>  I[mA] = (mV - 1180) * 1000 / 488.
+ * 1180 mV = ~0 A offset (U4 A1 reference), 488 mV/A slope. Clamped at 0. */
+#define BATT_ISENSE_OFFSET_MV 1180
+#define BATT_ISENSE_MV_PER_A  488
+static inline int FrontIrBumper_BattMilliAmps(void)
+{
+  int mv = (int)FrontIrBumper_BattMilliVolts();
+  int ma = ((mv - BATT_ISENSE_OFFSET_MV) * 1000) / BATT_ISENSE_MV_PER_A;
+  return (ma < 0) ? 0 : ma;
+}
+
+/* Battery VOLTAGE sense at PA2/ADC_IN2 (likely a divider from the pack). Raw
+ * 12-bit MEAN; this returns the millivolts AT THE PIN. Pack-voltage calibration
+ * (divider ratio) is TBD - user will supply real input values. */
+extern volatile uint16_t g_vbat_sense_adc;
+static inline uint16_t FrontIrBumper_VbatPinMilliVolts(void)
+{
+  return (uint16_t)(((uint32_t)g_vbat_sense_adc * 3300U) / 4095U);
+}
+
+/* Battery PACK voltage from the PA2 pin reading. Resistive divider (no offset),
+ * cal 2026-06-24 from the flashed ADC: 14.47 V pack = 1481 mV pin => ratio x9.770
+ * (same 71.5k/8.2k divider as VIN). V_pack = V_pin * 14470 / 1481. Pack mV. */
+#define VBAT_CAL_PIN_MV  1481
+#define VBAT_CAL_PACK_MV 14470
+static inline uint32_t FrontIrBumper_VbatPackMilliVolts(void)
+{
+  return ((uint32_t)FrontIrBumper_VbatPinMilliVolts() * VBAT_CAL_PACK_MV) / VBAT_CAL_PIN_MV;
+}
+
+/* 24V input / dock-rail sense at PA1/ADC_IN1 (same node as dock power J10 via a
+ * diode-OR; divided to the pin). Returns millivolts AT THE PIN; rail-voltage
+ * calibration (divider + diode drop) is TBD. */
+extern volatile uint16_t g_vin_sense_adc;
+static inline uint16_t FrontIrBumper_VinPinMilliVolts(void)
+{
+  return (uint16_t)(((uint32_t)g_vin_sense_adc * 3300U) / 4095U);
+}
+
+/* 24V-rail voltage from the PA1 pin reading. Hardware divider (board markings):
+ * top 71.5k (7152, to Vin) + bottom 8.2k (8201, to GND) => rail = pin * 79.7/8.2.
+ * On dock this rail = V(J10) - one diode drop. Returns millivolts of the rail. */
+#define VIN_DIV_NUM 797   /* (71.5k + 8.2k) scaled x10 */
+#define VIN_DIV_DEN 82    /* 8.2k scaled x10 */
+static inline uint32_t FrontIrBumper_VinRailMilliVolts(void)
+{
+  return ((uint32_t)FrontIrBumper_VinPinMilliVolts() * VIN_DIV_NUM) / VIN_DIV_DEN;
+}
+
 /* Powers the sensor rails, starts the IR carrier (TIM2_CH3 on PB10) and arms the
  * DMA acquisition. receiver_adc is the ADC wired to the J7 R/F/L inputs;
  * carrier_tim is TIM2 (CubeMX: Output Compare CH3 toggle, TRGO = update). */

@@ -105,6 +105,8 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     PC1     ------> ADC_IN11
     PC2     ------> ADC_IN12
     PC3     ------> ADC_IN13
+    PA1     ------> ADC_IN1
+    PA2     ------> ADC_IN2
     PA3     ------> ADC_IN3
     PA5     ------> ADC_IN5
     PA7     ------> ADC_IN7
@@ -119,7 +121,8 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-    GPIO_InitStruct.Pin = CLIFF_RIGHT_SIGNAL_Pin|FRONT_IR_PANEL_F_SIGNAL_Pin|BATTERY_CURRENT_SENSE_Pin;
+    GPIO_InitStruct.Pin = VIN_24V_SENSE_Pin|BATTERY_VOLTAGE_SENSE_Pin|CLIFF_RIGHT_SIGNAL_Pin|FRONT_IR_PANEL_F_SIGNAL_Pin
+                          |BATTERY_CURRENT_SENSE_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -158,6 +161,8 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* hadc)
     PC1     ------> ADC_IN11
     PC2     ------> ADC_IN12
     PC3     ------> ADC_IN13
+    PA1     ------> ADC_IN1
+    PA2     ------> ADC_IN2
     PA3     ------> ADC_IN3
     PA5     ------> ADC_IN5
     PA7     ------> ADC_IN7
@@ -169,7 +174,8 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* hadc)
     HAL_GPIO_DeInit(GPIOC, SIDE_IR_TRX_SIGNAL_Pin|CLIFF_LEFT_SIGNAL_Pin|CLIFF_FRONT_L_SIGNAL_Pin|FRONT_IR_PANEL_R_SIGNAL_Pin
                           |CLIFF_FRONT_R_SIGNAL_Pin|MOTOR_R_VPROPI_Pin);
 
-    HAL_GPIO_DeInit(GPIOA, CLIFF_RIGHT_SIGNAL_Pin|FRONT_IR_PANEL_F_SIGNAL_Pin|BATTERY_CURRENT_SENSE_Pin);
+    HAL_GPIO_DeInit(GPIOA, VIN_24V_SENSE_Pin|BATTERY_VOLTAGE_SENSE_Pin|CLIFF_RIGHT_SIGNAL_Pin|FRONT_IR_PANEL_F_SIGNAL_Pin
+                          |BATTERY_CURRENT_SENSE_Pin);
 
     HAL_GPIO_DeInit(GPIOB, FRONT_IR_PANEL_L_SIGNAL_Pin|MOTOR_L_VPROPI_Pin);
 
