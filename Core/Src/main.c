@@ -29,6 +29,7 @@
 #include "cliff_ir.h"
 #include "base_ir.h"
 #include "bumper_hit.h"
+#include "caster_odo.h"
 
 /* USER CODE END Includes */
 
@@ -133,6 +134,7 @@ int main(void)
   CliffIr_Init();   /* cliff x4 + side IR data model; all 5 live via the 8-ch front scan */
   BaseIr_Init();    /* 5 dock/base IR-beacon receivers (polled) for homing direction */
   BumperHit_Init(); /* PB5/PE12 impact sensors on EXTI -> instant latched hit status */
+  CasterOdo_Init(); /* J20 front-caster odometry: U10 OUT1 -> PD2 EXTI2 edge counter */
   MotorControl_Init(&htim3, &hadc);  /* wheels: PWM TIM3 + encoders (ADC handle unused) */
   Console_Init();   /* USART1 (JP1) RX DMA ring + IRQ-driven TX ring */
   Cmd_Init();

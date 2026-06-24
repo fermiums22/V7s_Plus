@@ -23,6 +23,7 @@
 #include "cliff_ir.h"
 #include "base_ir.h"
 #include "bumper_hit.h"
+#include "caster_odo.h"
 #include "motor_control.h"
 #include <string.h>
 #include <stdio.h>
@@ -44,6 +45,8 @@ typedef struct {
   uint32_t stream_last;
   bool     batt_stream_on;              /* live PA7 battery-current mV stream */
   uint32_t batt_stream_last;
+  bool     odo_stream_on;               /* live caster-odometry count stream */
+  uint32_t odo_stream_last;
 } cmd_ctx_t;
 
 static cmd_ctx_t g_ctx[NCON];
@@ -98,6 +101,7 @@ static void cmd_help(void)
   Console_Print("  batt [on|Hz|off]     - PA7 battery-current mV/mA; on/Hz = live stream\r\n");
   Console_Print("  vbat                 - PA2 battery-voltage sense (mV at pin)\r\n");
   Console_Print("  vin                  - PA1 24V input/dock-rail sense (mV at pin)\r\n");
+  Console_Print("  odo [on|Hz|off|reset]- J20 caster odometry (PD2) count; on/Hz = live stream\r\n");
   Console_Print("  fwd|back [rev]        - roll both wheels N revs (default 1) @80rpm\r\n");
   Console_Print("  spin [rpm]           - RIGHT wheel continuous spin (default 60; brake by hand)\r\n");
   Console_Print("  mstop                - stop the wheels\r\n");
@@ -225,6 +229,25 @@ static void cmd_dispatch(char *line)
     snprintf(b, sizeof b, "VIN  PA1 %u mV pin  ~%lu.%01lu V rail (24V in; =dock/J10 via diode)\r\n",
              (unsigned)FrontIrBumper_VinPinMilliVolts(),
              (unsigned long)(rail / 1000U), (unsigned long)((rail % 1000U) / 100U));
+    Console_Print(b);
+    return;
+  }
+
+  if (!strcmp(cmd, "odo"))    /* J20 front-caster odometry (U10 OUT1 -> PD2 EXTI2) */
+  {
+    if (arg && !strcmp(arg, "off"))   { g_cur->odo_stream_on = false; Console_Print("OK odo stream off\r\n"); return; }
+    if (arg && !strcmp(arg, "reset")) { CasterOdo_Reset(); Console_Print("OK odo reset\r\n"); return; }
+    if (arg)                          /* "odo on [Hz]" or "odo <Hz>" -> live stream */
+    {
+      const char *hz = !strcmp(arg, "on") ? strtok(NULL, " \t") : arg;
+      if (hz && !set_rate_hz(hz)) { Console_Print("ERR rate must be 1..500 Hz\r\n"); return; }
+      g_cur->odo_stream_on = true;
+      g_cur->odo_stream_last = HAL_GetTick();
+      Console_Print("OK odo stream on (Ctrl+C to stop; 'odo reset' to zero)\r\n");
+      return;
+    }
+    snprintf(b, sizeof b, "ODO PD2 count=%lu  level=%d\r\n",
+             (unsigned long)CasterOdo_Count(), CasterOdo_Level());
     Console_Print(b);
     return;
   }
@@ -375,6 +398,8 @@ void Cmd_Init(void)
     g_ctx[i].stream_last = 0;
     g_ctx[i].batt_stream_on   = false;
     g_ctx[i].batt_stream_last = 0;
+    g_ctx[i].odo_stream_on    = false;
+    g_ctx[i].odo_stream_last  = 0;
     g_ctx[i].hist_count  = 0;
     g_ctx[i].hist_nav    = 0;
     g_ctx[i].esc_state   = 0;
@@ -421,7 +446,7 @@ static void feed_one(char c)
 
   if (c == 0x03 || c == 0x1A)            /* Ctrl+C / Ctrl+Z: stop stream */
   {
-    if (cx->stream_on || cx->batt_stream_on) { cx->stream_on = false; cx->batt_stream_on = false; Console_Print("\r\n[stream stopped]\r\n"); }
+    if (cx->stream_on || cx->batt_stream_on || cx->odo_stream_on) { cx->stream_on = false; cx->batt_stream_on = false; cx->odo_stream_on = false; Console_Print("\r\n[stream stopped]\r\n"); }
     cx->cmd_len = 0; cx->esc_state = 0;
     return;
   }
@@ -500,6 +525,15 @@ void Cmd_StreamTask(void)
       snprintf(line, sizeof line, "BATT  %4u mV  ~%4d mA   adc=%u\r\n",
                (unsigned)FrontIrBumper_BattMilliVolts(), FrontIrBumper_BattMilliAmps(),
                (unsigned)g_batt_isense_adc);
+      Console_Stream(line);
+    }
+
+    if (cx->odo_stream_on && (now - cx->odo_stream_last) >= cx->stream_rate)
+    {
+      cx->odo_stream_last = now;
+      Console_Route(p);
+      snprintf(line, sizeof line, "ODO  count=%lu  level=%d\r\n",
+               (unsigned long)CasterOdo_Count(), CasterOdo_Level());
       Console_Stream(line);
     }
   }
