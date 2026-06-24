@@ -27,6 +27,8 @@
 #include "cmd.h"
 #include "buzzer.h"
 #include "cliff_ir.h"
+#include "base_ir.h"
+#include "bumper_hit.h"
 
 /* USER CODE END Includes */
 
@@ -128,7 +130,9 @@ int main(void)
   s_motor_test_deadline_ms = HAL_GetTick() + MOTOR_TEST_MOVE_TIMEOUT_MS;
 #else
   FrontIrBumper_Init(&hadc, &htim2);
-  CliffIr_Init();   /* cliff x4 + side IR data model; right cliff(PA3) live via front scan */
+  CliffIr_Init();   /* cliff x4 + side IR data model; all 5 live via the 8-ch front scan */
+  BaseIr_Init();    /* 5 dock/base IR-beacon receivers (polled) for homing direction */
+  BumperHit_Init(); /* PB5/PE12 impact sensors on EXTI -> instant latched hit status */
   MotorControl_Init(&htim3, &hadc);  /* wheels: PWM TIM3 + encoders (ADC handle unused) */
   Console_Init();   /* USART1 (JP1) RX DMA ring + IRQ-driven TX ring */
   Cmd_Init();
@@ -190,7 +194,8 @@ int main(void)
 #else
     FrontIrBumper_Task();
     CliffIr_Task();
-    MotorControl_Task();
+    BaseIr_Task();        /* poll the 5 dock-beacon receivers */
+    MotorControl_Task();  /* brakes on a latched bumper hit (checked inside) */
     {
       uint8_t rx_c; int rx_port;
       while (Console_ReadByte(&rx_c, &rx_port)) Cmd_FeedByte(rx_port, (char)rx_c);
@@ -289,9 +294,25 @@ static void MX_ADC_Init(void)
 
   /** Configure for the selected ADC regular channel to be converted.
   */
-  sConfig.Channel = ADC_CHANNEL_5;
+  sConfig.Channel = ADC_CHANNEL_3;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
   sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_5;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_7;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -315,7 +336,39 @@ static void MX_ADC_Init(void)
 
   /** Configure for the selected ADC regular channel to be converted.
   */
+  sConfig.Channel = ADC_CHANNEL_10;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_11;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_12;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
   sConfig.Channel = ADC_CHANNEL_13;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_14;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -525,11 +578,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : MOTOR_R_ENC_SIGNAL_Pin */
-  GPIO_InitStruct.Pin = MOTOR_R_ENC_SIGNAL_Pin;
+  /*Configure GPIO pins : BASE_IR_RIGHT_Pin MOTOR_R_ENC_SIGNAL_Pin BASE_IR_FRONT_R_Pin */
+  GPIO_InitStruct.Pin = BASE_IR_RIGHT_Pin|MOTOR_R_ENC_SIGNAL_Pin|BASE_IR_FRONT_R_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(MOTOR_R_ENC_SIGNAL_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pins : FRONT_IR_Q11_PULSE_Pin MOTOR_L_PHASE_Pin */
   GPIO_InitStruct.Pin = FRONT_IR_Q11_PULSE_Pin|MOTOR_L_PHASE_Pin;
@@ -538,8 +591,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : MOTOR_L_NFAULT_Pin MOTOR_R_NFAULT_Pin MOTOR_L_ENC_SIGNAL_Pin */
-  GPIO_InitStruct.Pin = MOTOR_L_NFAULT_Pin|MOTOR_R_NFAULT_Pin|MOTOR_L_ENC_SIGNAL_Pin;
+  /*Configure GPIO pin : BASE_IR_FRONT_L_Pin */
+  GPIO_InitStruct.Pin = BASE_IR_FRONT_L_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(BASE_IR_FRONT_L_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : MOTOR_L_NFAULT_Pin BASE_IR_LEFT_Pin MOTOR_R_NFAULT_Pin MOTOR_L_ENC_SIGNAL_Pin
+                           BASE_IR_REAR_Pin */
+  GPIO_InitStruct.Pin = MOTOR_L_NFAULT_Pin|BASE_IR_LEFT_Pin|MOTOR_R_NFAULT_Pin|MOTOR_L_ENC_SIGNAL_Pin
+                          |BASE_IR_REAR_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);

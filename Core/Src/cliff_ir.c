@@ -3,14 +3,12 @@
   * @file    cliff_ir.c
   * @brief   Cliff/floor IR (x4) + left side IR transceiver (x1). User-owned.
   *
-  *  SCAFFOLD: the data model, rate engine, console hooks and Q22-carrier control
-  *  surface are in place. What is still pending the main-board ring-out:
-  *    - GROUP A (PB10 carrier): add the front-cliff sense ADC channels to the
-  *      front_ir_bumper.c scan, and call CliffIr_SetSignal(CLIFF_*, demod) for
-  *      CLIFF_FRONT_L / CLIFF_FRONT_R / CLIFF_RIGHT (PA3=ADC_IN3 is known).
-  *    - GROUP B (Q22 carrier): the STM32 pin that drives Q22, its PWM timer,
-  *      and the CLIFF_LEFT / SIDE_IR sense ADC channels.
-  *  Until then these read 0; nothing else depends on the missing pins.
+  *  All 5 sense lines are now mapped and live: front_ir_bumper.c scans the 4
+  *  cliff ADC channels (FL=PC2/IN12, FR=PC4/IN14, RR=PA3/IN3, LL=PC1/IN11) plus
+  *  the side transceiver (SIDE=PC0/IN10) in its 8-channel synchronous demod and
+  *  publishes each here via CliffIr_SetSignal. There is NO separate Q22 carrier -
+  *  the illum-off test proved every emitter (incl. left cliff + side) rides the
+  *  shared Q11/PB10 carrier, so all 5 demodulate against it just like the panel.
   ******************************************************************************
   */
 #include "main.h"
@@ -54,27 +52,9 @@ void CliffIr_Init(void)
      There is NO separate Q22 carrier. PE9 is a voltage-SENSE input, not a
      control, so it is deliberately left unconfigured (not driven). */
 
-  /* Right-side digital sensors: PE12 (bumper-hit), PE6 (base IR rx). Both arrive
-     through a series R; use internal pull-ups (idle high). */
-  {
-    GPIO_InitTypeDef g = {0};
-    __HAL_RCC_GPIOE_CLK_ENABLE();
-    g.Pin = GPIO_PIN_12 | GPIO_PIN_6;
-    g.Mode = GPIO_MODE_INPUT;
-    g.Pull = GPIO_PULLUP;
-    g.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(GPIOE, &g);
-  }
-}
-
-int CliffIr_RightHit(void)
-{
-  return (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_12) == GPIO_PIN_SET) ? 1 : 0;
-}
-
-int CliffIr_RightBaseIr(void)
-{
-  return (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_6) == GPIO_PIN_SET) ? 1 : 0;
+  /* The right-side digital sensors that used to live here have moved out:
+     the bumper-hit inputs (PE12 + PB5) are now EXTI-driven in bumper_hit.c, and
+     the dock/base IR receivers (incl. PE6) are polled in base_ir.c. */
 }
 
 void CliffIr_SetSignal(int ch, int16_t signal)

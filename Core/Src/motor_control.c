@@ -1,4 +1,5 @@
 #include "motor_control.h"
+#include "bumper_hit.h"
 
 #define MOTOR_L_PWM_TIMER_CHANNEL TIM_CHANNEL_3
 #define MOTOR_R_PWM_TIMER_CHANNEL TIM_CHANNEL_1
@@ -355,6 +356,16 @@ void MotorControl_Task(void)
 
   update_speed_estimate(now_ms);
 
+  /* Impact reflex: the bumper-hit EXTI ISR latches a status flag the instant the
+     robot strikes something (or is kicked). We catch it here at the top of the
+     control cycle and brake at once - no grinding into the wall. The latch stays
+     set; the navigation layer decides how to back off / turn, then BumperHit_Clear. */
+  if (BumperHit_Active())
+  {
+    MotorControl_Stop();
+    return;
+  }
+
   if ((HAL_GPIO_ReadPin(MOTOR_L_NFAULT_GPIO_Port, MOTOR_L_NFAULT_Pin) == GPIO_PIN_RESET) ||
       (HAL_GPIO_ReadPin(MOTOR_R_NFAULT_GPIO_Port, MOTOR_R_NFAULT_Pin) == GPIO_PIN_RESET))
   {
@@ -452,6 +463,14 @@ void MotorControl_SetWheelSpeed(float speed_rpm)
 void MotorControl_SetLinearSpeed(float speed_mps)
 {
   MotorControl_SetWheelSpeed(mps_to_rpm(speed_mps));
+}
+
+void MotorControl_SetRightWheelSpeed(float speed_rpm)
+{
+  int32_t eps = rpm_to_edges_per_s(speed_rpm);
+  s_motor.right_target_speed_edges_per_s = eps;
+  s_motor.right_speed_integral = 0;
+  s_motor.right_mode = (eps == 0) ? MOTOR_CONTROL_MODE_OFF : MOTOR_CONTROL_MODE_SPEED;
 }
 
 void MotorControl_MoveTo(int32_t target_position_edges, int32_t max_speed_edges_per_s)

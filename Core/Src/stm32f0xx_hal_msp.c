@@ -101,21 +101,28 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     /**ADC GPIO Configuration
+    PC0     ------> ADC_IN10
+    PC1     ------> ADC_IN11
+    PC2     ------> ADC_IN12
     PC3     ------> ADC_IN13
+    PA3     ------> ADC_IN3
     PA5     ------> ADC_IN5
+    PA7     ------> ADC_IN7
+    PC4     ------> ADC_IN14
     PC5     ------> ADC_IN15
     PB0     ------> ADC_IN8
     PB1     ------> ADC_IN9
     */
-    GPIO_InitStruct.Pin = FRONT_IR_PANEL_R_SIGNAL_Pin|MOTOR_R_VPROPI_Pin;
+    GPIO_InitStruct.Pin = SIDE_IR_TRX_SIGNAL_Pin|CLIFF_LEFT_SIGNAL_Pin|CLIFF_FRONT_L_SIGNAL_Pin|FRONT_IR_PANEL_R_SIGNAL_Pin
+                          |CLIFF_FRONT_R_SIGNAL_Pin|MOTOR_R_VPROPI_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-    GPIO_InitStruct.Pin = FRONT_IR_PANEL_F_SIGNAL_Pin;
+    GPIO_InitStruct.Pin = CLIFF_RIGHT_SIGNAL_Pin|FRONT_IR_PANEL_F_SIGNAL_Pin|BATTERY_CURRENT_SENSE_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(FRONT_IR_PANEL_F_SIGNAL_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = FRONT_IR_PANEL_L_SIGNAL_Pin|MOTOR_L_VPROPI_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
@@ -147,15 +154,22 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* hadc)
     __HAL_RCC_ADC1_CLK_DISABLE();
 
     /**ADC GPIO Configuration
+    PC0     ------> ADC_IN10
+    PC1     ------> ADC_IN11
+    PC2     ------> ADC_IN12
     PC3     ------> ADC_IN13
+    PA3     ------> ADC_IN3
     PA5     ------> ADC_IN5
+    PA7     ------> ADC_IN7
+    PC4     ------> ADC_IN14
     PC5     ------> ADC_IN15
     PB0     ------> ADC_IN8
     PB1     ------> ADC_IN9
     */
-    HAL_GPIO_DeInit(GPIOC, FRONT_IR_PANEL_R_SIGNAL_Pin|MOTOR_R_VPROPI_Pin);
+    HAL_GPIO_DeInit(GPIOC, SIDE_IR_TRX_SIGNAL_Pin|CLIFF_LEFT_SIGNAL_Pin|CLIFF_FRONT_L_SIGNAL_Pin|FRONT_IR_PANEL_R_SIGNAL_Pin
+                          |CLIFF_FRONT_R_SIGNAL_Pin|MOTOR_R_VPROPI_Pin);
 
-    HAL_GPIO_DeInit(FRONT_IR_PANEL_F_SIGNAL_GPIO_Port, FRONT_IR_PANEL_F_SIGNAL_Pin);
+    HAL_GPIO_DeInit(GPIOA, CLIFF_RIGHT_SIGNAL_Pin|FRONT_IR_PANEL_F_SIGNAL_Pin|BATTERY_CURRENT_SENSE_Pin);
 
     HAL_GPIO_DeInit(GPIOB, FRONT_IR_PANEL_L_SIGNAL_Pin|MOTOR_L_VPROPI_Pin);
 

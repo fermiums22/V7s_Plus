@@ -27,12 +27,12 @@ Update the status after every continuity or powered test.
 |---|---|---|---|---|
 | 1 | firmware-ready | `J7` | front 8-pin IR navigation panel | DONE: 3 zones R/F/L (PC3/PA5/PB0 = ADC IN13/IN5/IN8). Driver `front_ir_bumper.c`: 1 kHz toggle carrier on PB10/TIM2_CH3, TIM2 TRGO triggers ADC, DMA1_Ch1 circular, synchronous off-on demod. Detects obstacle per-zone, rejects ambient. Next: threshold/event logic |
 | 2 | unknown | `J20` + `U10` | black/white optical position wheel | ring J20 pins to U10 pins; find U10 output to STM32 |
-| 3 | unknown | onboard front IR receivers | front-left/front-right dock beacon receivers | identify part pins, VCC/GND/OUT, output destination |
-| 4 | unknown | `J17` | left side IR + optical bumper limit + IR receiver | map GND/VCC and three sub-signals |
+| 3 | firmware-ready | onboard front IR receivers | front-left/front-right dock beacon receivers | front-L `PB11`, front-R `PE15` (digital). Now live in `base_ir.c` as part of the 5-way dock-beacon scan (FL/FR/L `PD13`/R `PE6`/RR `PD4`): per-direction low-time strength + `BaseIr_Direction()`. Console: `baseir`. Next: VCC/GND + homing logic |
+| 4 | firmware-ready | `J17` | left side IR + optical bumper limit + IR receiver | DONE: pin1=switched 5V sensor/motor pwr, pin2=emitter drive->Q22, pin3=GND, pin4=cliff sense->`PC1`(ADC IN11), pin5=side-trx RX->`PC0`(ADC IN10), pin6=base IR RX->`PD13`, pin7=bumper-hit->`PB5`, pin8=direct 5V. Cliff(PC1)+side(PC0) now in the 8-channel `front_ir_bumper.c` demod scan via .ioc. Next: PD13/PB5 digital read + thresholds |
 | 5 | unknown | `J2` | right side IR + optical bumper limit + IR receiver | map GND/VCC and three sub-signals |
-| 6 | unknown | `J15` | rear IR receiver | map VCC/GND/OUT and destination |
-| 7 | unknown | `J3` | front right IR sensor | map VCC/GND/emitter/sense pins |
-| 8 | unknown | `J4` | front left IR sensor | map VCC/GND/emitter/sense pins |
+| 6 | partial | `J15` | rear IR receiver | OUT mapped: `J15:3` (device pin1, demod OUT) -> series R -> `PD4` (digital input). Still TODO: VCC/GND (`J15:1`/`J15:2`) and any power-enable |
+| 7 | firmware-ready (sense) | `J3` | front right cliff IR sensor | sense `J3:3`->`PC4`(ADC IN14), now live in the 8-channel `front_ir_bumper.c` demod. Emitter rides J4->J3->J2 VBAT chain (Q11 carrier). Rest of colodka per cliff 4-pin map |
+| 8 | firmware-ready (sense) | `J4` | front left cliff IR sensor | sense `J4:3`->`PC2`(ADC IN12), now live in the 8-channel demod. Emitter = Q4 chain head. Rest of colodka per cliff 4-pin map |
 | 9 | unknown | `J12` | touch button with RGB backlight | map VCC/GND/touch/R/G/B or serial/controller lines |
 | 10 | mapped | buzzer (`Q17` / `BUZZER1`) | sounder / beeper | driver `Q17` (same current-driver topology + 10 ohm shunt as front IR LED drivers); control to `PA11` via RC. Next: confirm magnetic vs piezo, then drive `PA11` as timer PWM for tones |
 | 11 | unknown | `U4`, `R72/R73` | battery current / voltage monitor | trace U4 outputs pin 1/pin 7 to STM32 or power logic |

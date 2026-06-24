@@ -67,6 +67,23 @@ CubeMX при `config load` **молча выкидывает** ключи, ко
 PB10 ставит драйвер** одной строкой (`HAL_GPIO_Init` AF2 + `HAL_TIM_OC_Start`). См.
 `Core/Src/front_ir_bumper.c` (`FrontIrBumper_CarrierPinInit`).
 
+### Рецепт: добавить ADC-канал в .ioc (проверено, F071, 2026-06)
+Чтобы пин `PCx` стал `ADC_INn` и попал в generated MSP (analog GPIO) + `MX_ADC_Init`,
+нужны ВСЕ части согласованно (CubeMX молча проглотит и сгенерит, если всё на месте):
+1. Блок пина: `PCx.GPIOParameters=GPIO_Label` / `PCx.GPIO_Label=...` / `PCx.Locked=true` /
+   `PCx.Mode=INn` / `PCx.Signal=ADC_INn`.
+2. `Mcu.PinNN=PCx` + увеличить `Mcu.PinsNb` (CubeMX потом сам перенумерует Pin* при `config load`).
+3. В блоке `ADC.*` на КАЖДЫЙ новый канал-`k`: `ADC.Channel-k\#ChannelRegularConversion=ADC_CHANNEL_n`,
+   `ADC.Rank-k\#ChannelRegularConversion=ADC_RANK_CHANNEL_NUMBER`,
+   `ADC.SamplingTime-k\#ChannelRegularConversion=ADC_SAMPLETIME_239CYCLES_5`.
+4. Увеличить `ADC.NbrOfConversion` и дописать те же три ключа `*-k\#ChannelRegularConversion`
+   в `ADC.IPParameters` (порядок: ...,Channel-4...,SamplingTime-5,Rank-5,Channel-5,...,NbrOfConversionFlag,master,NbrOfConversion).
+- `\#` экранируется ровно так (бэкслеш-решётка), как у существующих каналов.
+- ScanConvMode=FORWARD + Rank=CHANNEL_NUMBER => HW конвертит каналы строго по ВОЗРАСТАНИЮ
+  номера, список Channel-k — это лишь набор, не порядок. Индексы в DMA-буфере = по возрастанию ch.
+- Драйвер (`front_ir_bumper.c`) всё равно сам пересобирает `CHSELR` под свой скан-подсет; .ioc-каналы
+  нужны для наглядности + чтобы MspInit сделал пины analog (тогда ручной GPIO-init в драйвере не нужен).
+
 ## Что МОЖНО держать в драйвере (а не в .ioc)
 ADC — общий ресурс, переключаемый в рантайме (внешний триггер + DMA для ИК-скана сейчас,
 токи моторов в другом режиме потом). CubeMX даёт ОДИН статический режим ADC, поэтому

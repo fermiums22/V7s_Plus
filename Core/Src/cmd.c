@@ -21,6 +21,8 @@
 #include "front_ir_bumper.h"
 #include "buzzer.h"
 #include "cliff_ir.h"
+#include "base_ir.h"
+#include "bumper_hit.h"
 #include "motor_control.h"
 #include <string.h>
 #include <stdio.h>
@@ -89,10 +91,13 @@ static void cmd_help(void)
   Console_Print("  help                 - this help\r\n");
   Console_Print("  logo                 - show the banner\r\n");
   Console_Print("  status / ir          - front IR zones: signal(proximity) + rate(approach)\r\n");
-  Console_Print("  cliff                - 4 cliff + side IR: signal + rate (right=PA3 live)\r\n");
+  Console_Print("  cliff                - 4 cliff + side IR: signal + rate (all 5 live)\r\n");
+  Console_Print("  baseir               - 5 dock-beacon IR rx: per-dir strength + dock dir\r\n");
+  Console_Print("  batt                 - battery current sense voltage at PA7 (adc + mV)\r\n");
   Console_Print("  fwd|back [rev]        - roll both wheels N revs (default 1) @80rpm\r\n");
+  Console_Print("  spin [rpm]           - RIGHT wheel continuous spin (default 60; brake by hand)\r\n");
   Console_Print("  mstop                - stop the wheels\r\n");
-  Console_Print("  hit                  - right bumper-hit (PE12) + right base IR (PE6)\r\n");
+  Console_Print("  hit                  - bumper-hit L/R (PB5/PE12) EXTI-latched; read clears\r\n");
   Console_Print("  ir on|off [Hz]       - stream the IR telemetry (alias of stream)\r\n");
   Console_Print("  stream on|off [Hz]   - IR,<ms>,<R>,<F>,<L>,<dR>,<dF>,<dL>  (sig + rate)\r\n");
   Console_Print("  thr [near] [move]    - get/set NEAR signal + MOVE rate thresholds\r\n");
@@ -130,6 +135,19 @@ static void cmd_cliff_once(void)
   Console_Print(b);
 }
 
+static void cmd_baseir_once(void)
+{
+  char b[120];
+  int dir = BaseIr_Direction();
+  const char *dname = (dir >= 0) ? BaseIr_Name(dir) : "-";
+  snprintf(b, sizeof b,
+           "BASEIR FL=%u FR=%u L=%u R=%u RR=%u (permille low) -> dock=%s\r\n",
+           (unsigned)g_base_ir_activity[BASE_IR_FRONT_L], (unsigned)g_base_ir_activity[BASE_IR_FRONT_R],
+           (unsigned)g_base_ir_activity[BASE_IR_LEFT],    (unsigned)g_base_ir_activity[BASE_IR_RIGHT],
+           (unsigned)g_base_ir_activity[BASE_IR_REAR],    dname);
+  Console_Print(b);
+}
+
 static void cmd_status(void)
 {
   cmd_ir_once();
@@ -160,12 +178,21 @@ static void cmd_dispatch(char *line)
   while (((tok[ci] >= 'a' && tok[ci] <= 'z') || tok[ci] == '_') && ci < 15) { cmd[ci] = tok[ci]; ci++; }
   cmd[ci] = '\0';
   char *arg = (tok[ci] != '\0') ? &tok[ci] : strtok(NULL, " \t");
-  char b[64];
+  char b[96];
 
   if (!strcmp(cmd, "help"))   { cmd_help();   return; }
   if (!strcmp(cmd, "logo"))   { Cmd_Banner(); return; }
   if (!strcmp(cmd, "status")) { cmd_status(); return; }
   if (!strcmp(cmd, "cliff"))  { cmd_cliff_once(); return; }
+  if (!strcmp(cmd, "baseir")) { cmd_baseir_once(); return; }
+
+  if (!strcmp(cmd, "batt"))   /* PA7/ADC_IN7 = U4 OUT2 battery current sense voltage */
+  {
+    snprintf(b, sizeof b, "BATT PA7 adc=%u  %u mV  (U4 OUT2 batt-current sense)\r\n",
+             (unsigned)g_batt_isense_adc, (unsigned)FrontIrBumper_BattMilliVolts());
+    Console_Print(b);
+    return;
+  }
 
   if (!strcmp(cmd, "reset") || !strcmp(cmd, "reboot"))
   {
@@ -279,11 +306,24 @@ static void cmd_dispatch(char *line)
 
   if (!strcmp(cmd, "mstop")) { MotorControl_Stop(); Console_Print("OK motors stop\r\n"); return; }
 
-  if (!strcmp(cmd, "hit"))   /* right bumper-hit (PE12) + right base IR rx (PE6) */
+  if (!strcmp(cmd, "spin"))   /* RIGHT wheel continuous spin (bench current test; brake by hand) */
   {
-    snprintf(b, sizeof b, "HIT right(PE12)=%d | baseIR right(PE6)=%d  (idle high, active low)\r\n",
-             CliffIr_RightHit(), CliffIr_RightBaseIr());
+    long rpm = 60;
+    if (arg) { long v = strtol(arg, NULL, 10); if (v >= -300 && v <= 300 && v != 0) rpm = v; }
+    MotorControl_SetRightWheelSpeed((float)rpm);
+    snprintf(b, sizeof b, "OK spin RIGHT @%ld rpm ('mstop' to halt)\r\n", rpm);
     Console_Print(b);
+    return;
+  }
+
+  if (!strcmp(cmd, "hit"))   /* bumper-hit impact status (EXTI-latched), then clear */
+  {
+    uint8_t ev = BumperHit_Events();
+    snprintf(b, sizeof b, "HIT latched L=%d R=%d | now L=%d R=%d  (idle high; read clears)\r\n",
+             (ev >> BUMPER_HIT_LEFT) & 1, (ev >> BUMPER_HIT_RIGHT) & 1,
+             BumperHit_Level(BUMPER_HIT_LEFT), BumperHit_Level(BUMPER_HIT_RIGHT));
+    Console_Print(b);
+    BumperHit_Clear();
     return;
   }
 

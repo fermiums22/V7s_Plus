@@ -14,7 +14,9 @@
  *   - TIM2 TRGO = update (2 kHz) triggers the ADC. The update fires a quarter of
  *     a carrier period after each toggle, i.e. at the CENTRE of each carrier
  *     half -> every other ADC trigger lands in the LED-on vs LED-off half.
- *   - ADC scans F/L/R on each trigger; DMA1_Ch1 (circular) stores the samples.
+ *   - ADC scans all 8 reflective-IR sense lines on each trigger (3 front-panel
+ *     zones F/L/R + 4 floor/cliff sensors + the left side transceiver); DMA1_Ch1
+ *     (circular) stores the samples. All 8 share the one Q11 carrier.
  *   - Per channel, signal = mean(off-half) - mean(on-half): the carrier-locked
  *     reflected IR. Ambient (window/lamp/DC) is identical in two adjacent half
  *     periods, so it cancels. (Verified: carrier-off demod reads exactly 0.)
@@ -30,18 +32,33 @@
 #define FRONT_IR_CARRIER_CHANNEL TIM_CHANNEL_3
 
 /* ADC scan: channels are converted in ascending channel-number order (forward
- * scan), so each DMA trigger stores [F, L, R]. */
-#define FRONT_IR_RCLIFF_ADC_CHANNEL ADC_CHANNEL_3  /* J2-4 right cliff -> PA3 */
-#define FRONT_IR_R_ADC_CHANNEL ADC_CHANNEL_13 /* J7-5 R -> PC3 */
-#define FRONT_IR_F_ADC_CHANNEL ADC_CHANNEL_5  /* J7-6 F -> PA5 */
-#define FRONT_IR_L_ADC_CHANNEL ADC_CHANNEL_8  /* J7-7 L -> PB0 */
-/* Forward scan converts in ASCENDING channel number: ch3, ch5, ch8, ch13.
- * The right cliff rides the same Q11 carrier, so it demods just like F/L/R. */
-#define FRONT_IR_SCAN_CHANNELS 4U
-#define FRONT_IR_IDX_RCLIFF 0U /* ch3  -> PA3 right cliff */
-#define FRONT_IR_IDX_F 1U      /* ch5  -> PA5 */
-#define FRONT_IR_IDX_L 2U      /* ch8  -> PB0 */
-#define FRONT_IR_IDX_R 3U      /* ch13 -> PC3 */
+ * scan over CHSELR), so each DMA trigger stores the 9 samples in channel order
+ * [PA3, PA5, PA7, PB0, PC0, PC1, PC2, PC3, PC4]. The 8 reflective IR sense lines
+ * ride the one Q11/PB10 carrier and are demodulated (on-off). PA7 (ch7) is the
+ * battery low-side current sense from U4 - it is NOT carrier-modulated, so for it
+ * we publish the plain MEAN of the half-buffer (the demod difference would be ~0).
+ * Pins are declared as ADC_INx in the .ioc (MspInit sets them analog); this engine
+ * only picks the scan subset at runtime (it drops the motor-current channels 9/15). */
+#define FRONT_IR_RCLIFF_ADC_CHANNEL  ADC_CHANNEL_3  /* J2:4  right cliff   -> PA3 */
+#define FRONT_IR_F_ADC_CHANNEL       ADC_CHANNEL_5  /* J7:6  F zone        -> PA5 */
+#define FRONT_IR_BATT_ADC_CHANNEL    ADC_CHANNEL_7  /* U4 OUT2 batt current-> PA7 */
+#define FRONT_IR_L_ADC_CHANNEL       ADC_CHANNEL_8  /* J7:7  L zone        -> PB0 */
+#define FRONT_IR_SIDE_ADC_CHANNEL    ADC_CHANNEL_10 /* J17:5 side IR TRX RX-> PC0 */
+#define FRONT_IR_LCLIFF_ADC_CHANNEL  ADC_CHANNEL_11 /* J17:4 left cliff    -> PC1 */
+#define FRONT_IR_FLCLIFF_ADC_CHANNEL ADC_CHANNEL_12 /* J4:3  front-L cliff -> PC2 */
+#define FRONT_IR_R_ADC_CHANNEL       ADC_CHANNEL_13 /* J7:5  R zone        -> PC3 */
+#define FRONT_IR_FRCLIFF_ADC_CHANNEL ADC_CHANNEL_14 /* J3:3  front-R cliff -> PC4 */
+/* Forward scan converts in ASCENDING channel number: 3,5,7,8,10,11,12,13,14. */
+#define FRONT_IR_SCAN_CHANNELS 9U
+#define FRONT_IR_IDX_RCLIFF  0U /* ch3  PA3 right cliff             */
+#define FRONT_IR_IDX_F       1U /* ch5  PA5 front-centre zone       */
+#define FRONT_IR_IDX_BATT    2U /* ch7  PA7 battery current (MEAN)  */
+#define FRONT_IR_IDX_L       3U /* ch8  PB0 front-left zone         */
+#define FRONT_IR_IDX_SIDE    4U /* ch10 PC0 left side IR transceiver*/
+#define FRONT_IR_IDX_LCLIFF  5U /* ch11 PC1 left cliff              */
+#define FRONT_IR_IDX_FLCLIFF 6U /* ch12 PC2 front-left cliff        */
+#define FRONT_IR_IDX_R       7U /* ch13 PC3 front-right zone        */
+#define FRONT_IR_IDX_FRCLIFF 8U /* ch14 PC4 front-right cliff       */
 
 /* One half-buffer = PERIODS_PER_HALF carrier periods. Each period = 2 ADC
  * triggers (on-half + off-half), each trigger = FRONT_IR_SCAN_CHANNELS samples.
@@ -59,6 +76,9 @@ volatile uint16_t g_front_ir_l_off_adc = 0;
 volatile int16_t g_front_ir_r_signal = 0;
 volatile int16_t g_front_ir_f_signal = 0;
 volatile int16_t g_front_ir_l_signal = 0;
+/* Battery low-side current sense (PA7/ADC_IN7, U4 OUT2): raw 12-bit MEAN over the
+ * last half-buffer (NOT carrier-demodulated). Convert with FrontIrBumper_BattMilliVolts. */
+volatile uint16_t g_batt_isense_adc = 0;
 /* Rate of change of the reflected-IR signal per zone (this update minus the
  * previous, ~15 Hz). Positive = object getting closer / brightening
  * (approaching); negative = receding. Detects MOVING obstacles that a plain
@@ -92,27 +112,33 @@ static void FrontIrBumper_AdcDmaInit(void)
   s_adc->Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   (void)HAL_ADC_Init(s_adc);
 
-  /* PA3 = right cliff sense (J2:4 = ADC_IN3) as analog input. */
-  {
-    GPIO_InitTypeDef gpio_a3 = {0};
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    gpio_a3.Pin = GPIO_PIN_3;
-    gpio_a3.Mode = GPIO_MODE_ANALOG;
-    gpio_a3.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOA, &gpio_a3);
-  }
+  /* All analog sense pins (PA3, PA5, PB0, PC0..PC4) are declared as ADC_INx in
+   * the .ioc and set to GPIO_MODE_ANALOG by the CubeMX-generated
+   * HAL_ADC_MspInit, which already ran in MX_ADC_Init - nothing to do here. */
 
-  /* Select right-cliff + F, L, R (drop the motor-current channels for this engine). */
+  /* Select the 8 reflective-IR sense channels + battery current (ch7); drop the
+   * motor-current channels 9/15 for this engine. CHSELR converts in ascending
+   * channel order, so PA7/ch7 lands at scan index FRONT_IR_IDX_BATT. */
   s_adc->Instance->CHSELR = 0;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5; /* long sample = low noise; 4ch ~72us << 500us */
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5; /* low noise; 9ch ~162us << 500us trigger */
   sConfig.Channel = FRONT_IR_RCLIFF_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_F_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
+  sConfig.Channel = FRONT_IR_BATT_ADC_CHANNEL;
+  (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_L_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
+  sConfig.Channel = FRONT_IR_SIDE_ADC_CHANNEL;
+  (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
+  sConfig.Channel = FRONT_IR_LCLIFF_ADC_CHANNEL;
+  (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
+  sConfig.Channel = FRONT_IR_FLCLIFF_ADC_CHANNEL;
+  (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_R_ADC_CHANNEL;
+  (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
+  sConfig.Channel = FRONT_IR_FRCLIFF_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
 
   /* DMA1_Channel1 <- ADC1, circular, half-word, memory-incrementing. */
@@ -165,6 +191,20 @@ void FrontIrBumper_Init(ADC_HandleTypeDef *receiver_adc, TIM_HandleTypeDef *carr
   (void)HAL_TIM_OC_Start(s_carrier_tim, FRONT_IR_CARRIER_CHANNEL);
 }
 
+/* Reduce one channel's two phase-accumulators to per-sample on/off means. Each
+ * phase summed FRONT_IR_PERIODS_PER_HALF samples; the inverting path makes the
+ * LED-on half read lower, so on = min(phase), off = max(phase). */
+static void FrontIrBumper_LoHi(const int32_t *a, const int32_t *b, uint32_t idx,
+                               uint16_t *lo, uint16_t *hi)
+{
+  int32_t av = a[idx];
+  int32_t bv = b[idx];
+  int32_t mn = (av < bv) ? av : bv;
+  int32_t mx = (av > bv) ? av : bv;
+  *lo = (uint16_t)(mn / (int32_t)FRONT_IR_PERIODS_PER_HALF);
+  *hi = (uint16_t)(mx / (int32_t)FRONT_IR_PERIODS_PER_HALF);
+}
+
 /* Demodulate one half-buffer: split the FRONT_IR_PERIODS_PER_HALF*2 triggers
  * into the two carrier phases and reduce to per-channel on/off means. */
 static void FrontIrBumper_DemodHalf(const uint16_t *half)
@@ -172,43 +212,50 @@ static void FrontIrBumper_DemodHalf(const uint16_t *half)
   int32_t a[FRONT_IR_SCAN_CHANNELS] = {0}; /* even triggers (one carrier phase) */
   int32_t b[FRONT_IR_SCAN_CHANNELS] = {0}; /* odd triggers (the other phase)    */
   const uint32_t triggers = FRONT_IR_PERIODS_PER_HALF * 2U;
+  uint16_t lo, hi;
 
   for (uint32_t t = 0; t < triggers; t++)
   {
     const uint16_t *s = &half[t * FRONT_IR_SCAN_CHANNELS];
     int32_t *acc = (t & 1U) ? b : a;
-    acc[FRONT_IR_IDX_RCLIFF] += s[FRONT_IR_IDX_RCLIFF];
-    acc[FRONT_IR_IDX_F] += s[FRONT_IR_IDX_F];
-    acc[FRONT_IR_IDX_L] += s[FRONT_IR_IDX_L];
-    acc[FRONT_IR_IDX_R] += s[FRONT_IR_IDX_R];
+    for (uint32_t c = 0; c < FRONT_IR_SCAN_CHANNELS; c++)
+    {
+      acc[c] += s[c];
+    }
   }
 
-  /* Each phase has FRONT_IR_PERIODS_PER_HALF samples. The inverting path makes
-   * the LED-on half read lower, so on = min(phase), off = max(phase). */
-  uint16_t f_lo = (uint16_t)((a[FRONT_IR_IDX_F] < b[FRONT_IR_IDX_F] ? a[FRONT_IR_IDX_F] : b[FRONT_IR_IDX_F]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
-  uint16_t f_hi = (uint16_t)((a[FRONT_IR_IDX_F] > b[FRONT_IR_IDX_F] ? a[FRONT_IR_IDX_F] : b[FRONT_IR_IDX_F]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
-  uint16_t l_lo = (uint16_t)((a[FRONT_IR_IDX_L] < b[FRONT_IR_IDX_L] ? a[FRONT_IR_IDX_L] : b[FRONT_IR_IDX_L]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
-  uint16_t l_hi = (uint16_t)((a[FRONT_IR_IDX_L] > b[FRONT_IR_IDX_L] ? a[FRONT_IR_IDX_L] : b[FRONT_IR_IDX_L]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
-  uint16_t r_lo = (uint16_t)((a[FRONT_IR_IDX_R] < b[FRONT_IR_IDX_R] ? a[FRONT_IR_IDX_R] : b[FRONT_IR_IDX_R]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
-  uint16_t r_hi = (uint16_t)((a[FRONT_IR_IDX_R] > b[FRONT_IR_IDX_R] ? a[FRONT_IR_IDX_R] : b[FRONT_IR_IDX_R]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
+  /* Front panel zones also expose the raw on/off ADC means (console/telemetry). */
+  FrontIrBumper_LoHi(a, b, FRONT_IR_IDX_F, &lo, &hi);
+  g_front_ir_f_on_adc = lo;
+  g_front_ir_f_off_adc = hi;
+  g_front_ir_f_signal = (int16_t)(hi - lo);
+  FrontIrBumper_LoHi(a, b, FRONT_IR_IDX_L, &lo, &hi);
+  g_front_ir_l_on_adc = lo;
+  g_front_ir_l_off_adc = hi;
+  g_front_ir_l_signal = (int16_t)(hi - lo);
+  FrontIrBumper_LoHi(a, b, FRONT_IR_IDX_R, &lo, &hi);
+  g_front_ir_r_on_adc = lo;
+  g_front_ir_r_off_adc = hi;
+  g_front_ir_r_signal = (int16_t)(hi - lo);
 
-  g_front_ir_f_on_adc = f_lo;
-  g_front_ir_f_off_adc = f_hi;
-  g_front_ir_f_signal = (int16_t)(f_hi - f_lo);
-  g_front_ir_l_on_adc = l_lo;
-  g_front_ir_l_off_adc = l_hi;
-  g_front_ir_l_signal = (int16_t)(l_hi - l_lo);
-  g_front_ir_r_on_adc = r_lo;
-  g_front_ir_r_off_adc = r_hi;
-  g_front_ir_r_signal = (int16_t)(r_hi - r_lo);
+  /* The 4 cliff sensors + the left side IR transceiver ride the same Q11 carrier
+   * and demodulate identically; publish each into the cliff model (CliffIr_Task
+   * derives the per-channel rate). */
+  FrontIrBumper_LoHi(a, b, FRONT_IR_IDX_RCLIFF, &lo, &hi);
+  CliffIr_SetSignal(CLIFF_RIGHT, (int16_t)(hi - lo));
+  FrontIrBumper_LoHi(a, b, FRONT_IR_IDX_LCLIFF, &lo, &hi);
+  CliffIr_SetSignal(CLIFF_LEFT, (int16_t)(hi - lo));
+  FrontIrBumper_LoHi(a, b, FRONT_IR_IDX_FLCLIFF, &lo, &hi);
+  CliffIr_SetSignal(CLIFF_FRONT_L, (int16_t)(hi - lo));
+  FrontIrBumper_LoHi(a, b, FRONT_IR_IDX_FRCLIFF, &lo, &hi);
+  CliffIr_SetSignal(CLIFF_FRONT_R, (int16_t)(hi - lo));
+  FrontIrBumper_LoHi(a, b, FRONT_IR_IDX_SIDE, &lo, &hi);
+  CliffIr_SetSignal(SIDE_IR, (int16_t)(hi - lo));
 
-  /* Right cliff (PA3) rides the same carrier; same inverting demod, published
-   * into the cliff model (CliffIr_Task derives its rate). */
-  {
-    uint16_t rc_lo = (uint16_t)((a[FRONT_IR_IDX_RCLIFF] < b[FRONT_IR_IDX_RCLIFF] ? a[FRONT_IR_IDX_RCLIFF] : b[FRONT_IR_IDX_RCLIFF]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
-    uint16_t rc_hi = (uint16_t)((a[FRONT_IR_IDX_RCLIFF] > b[FRONT_IR_IDX_RCLIFF] ? a[FRONT_IR_IDX_RCLIFF] : b[FRONT_IR_IDX_RCLIFF]) / (int32_t)FRONT_IR_PERIODS_PER_HALF);
-    CliffIr_SetSignal(CLIFF_RIGHT, (int16_t)(rc_hi - rc_lo));
-  }
+  /* Battery current (PA7) is not carrier-modulated, so publish the plain MEAN of
+     the whole half-buffer (both phases) = raw 12-bit ADC count at PA7. */
+  g_batt_isense_adc = (uint16_t)((a[FRONT_IR_IDX_BATT] + b[FRONT_IR_IDX_BATT])
+                                 / (int32_t)(2U * FRONT_IR_PERIODS_PER_HALF));
 
   /* Approach detection: change vs previous update. */
   g_front_ir_f_rate = (int16_t)(g_front_ir_f_signal - s_front_ir_f_prev);

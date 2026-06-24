@@ -10,11 +10,14 @@
   *  Q22 carrier. All are demodulated in the same synchronous ADC scan
   *  (front_ir_bumper.c); feed each fresh demod result here via CliffIr_SetSignal.
   *
-  *     CLIFF_FRONT_L  J4   sense -> STM32 ___ (ADC ch TBD)
-  *     CLIFF_FRONT_R  J3   sense -> STM32 ___ (ADC ch TBD)
-  *     CLIFF_RIGHT    J2:4 sense -> STM32 PA3 (ADC_IN3)   [CONFIRMED]
-  *     CLIFF_LEFT     J17:4 sense -> STM32 ___ (ADC ch TBD)
-  *     SIDE_IR        J17:5 sense -> STM32 ___ (ADC ch TBD)
+  *     CLIFF_FRONT_L  J4:3  sense -> STM32 PC2  (ADC_IN12)  [CONFIRMED]
+  *     CLIFF_FRONT_R  J3:3  sense -> STM32 PC4  (ADC_IN14)  [CONFIRMED]
+  *     CLIFF_RIGHT    J2:4  sense -> STM32 PA3  (ADC_IN3)   [CONFIRMED]
+  *     CLIFF_LEFT     J17:4 sense -> STM32 PC1  (ADC_IN11)  [CONFIRMED]
+  *     SIDE_IR        J17:5 sense -> STM32 PC0  (ADC_IN10)  [CONFIRMED]
+  *
+  *  All 5 ADC channels are declared in V7s_Plus.ioc and scanned by the 8-channel
+  *  synchronous demod in front_ir_bumper.c (3 front-panel zones + these 5).
   *
   *  (PE9, once thought to control the left emitters, is actually a voltage-SENSE
   *   input - disproven as a control by the illum-off test - and is not driven.)
@@ -52,9 +55,7 @@ const char *CliffIr_Name(int ch);               /* short label, or 0 */
    result (all 5 share the Q11 carrier and the same synchronous ADC scan). */
 void CliffIr_SetSignal(int ch, int16_t signal);
 
-/* Right-side main-board DIGITAL sensors whose STM32 pins are confirmed.
-   Return the raw pin level (1=high, 0=low); caller interprets polarity. */
-int CliffIr_RightHit(void);     /* PE12: right bumper-hit photo output */
-int CliffIr_RightBaseIr(void);  /* PE6 : right dock/base IR receiver demod out */
+/* NOTE: the right-side digital sensors moved out of this module - bumper-hit
+   (PE12/PB5) is in bumper_hit.h, dock/base IR receivers are in base_ir.h. */
 
 #endif /* CLIFF_IR_H */

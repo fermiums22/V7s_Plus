@@ -61,6 +61,7 @@ void MotorControl_SetRightTestPwm(int16_t signed_pwm);
 uint8_t MotorControl_IsRightBusy(void);
 void MotorControl_SetSpeed(int32_t speed_edges_per_s);
 void MotorControl_SetWheelSpeed(float speed_rpm);
+void MotorControl_SetRightWheelSpeed(float speed_rpm);   /* right wheel continuous speed (rpm) */
 void MotorControl_SetLinearSpeed(float speed_mps);
 void MotorControl_MoveTo(int32_t target_position_edges, int32_t max_speed_edges_per_s);
 void MotorControl_MoveRelative(int32_t delta_edges, int32_t max_speed_edges_per_s);

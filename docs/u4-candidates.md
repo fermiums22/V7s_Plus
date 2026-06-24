@@ -116,6 +116,100 @@ With current-limited power:
 2. Measure outputs at idle.
 3. Apply a small known load and watch whether an output changes linearly. Linear means op-amp/current monitor; switching threshold means comparator.
 
+## Live probing log (2026-06-24, user ring-out)
+
+Notation: `R` = right pad of a resistor, `L` = left pad (as the user views the board).
+
+Physical cluster between the shunts and U4 (top -> bottom):
+```
+R73
+R72
+R74  R69
+R75  R70
+R76  R68
+C42
+U4
+```
+Left column = R74 / R75 / R76. Right column = R69 / R70 / R68.
+
+Continuity found so far:
+- `R72:R -> R74`  (shunt R72 right pad goes into R74)
+- `R69:L -> GND`  (same GND node R72 sits on = shunt low side)
+- `U4:2 (IN1-) -> R68:R`
+- `U4:3 (IN1+) -> cluster C38 / R64 / R65 / C37`, and it is a **biased reference**:
+  - `R63` pulls U4:3 up to **5V**
+  - `R65` pulls U4:3 down to **GND**
+  - i.e. U4:3 = resistor divider 5V/GND, RC-filtered (C37/C38) = a fixed reference voltage.
+
+### Interpretation (refines "low-side current-sense op-amp")
+This matches a **single-supply op-amp current-sense amp on channel A1**:
+- `pin3 (IN1+)` held at a filtered **reference** (R63/R65 divider off 5V) - the mid-point the
+  amplified shunt signal swings around (needed because a single-supply op-amp can't go below 0V).
+- `pin2 (IN1-)` is the summing/feedback node via `R68` (gain set by R68 + a feedback R).
+- Shunt voltage enters the network through `R74` (from R72 hot side).
+- `pin1 (OUT1)` should then be the amplified battery-current analog -> trace to an STM32 ADC.
+
+### Highest-value next continuity checks
+1. **`U4:1` (OUT1) -> ?** most important: does it reach an STM32 ADC pin (battery current) or a divider?
+2. **`R68:L` far end and `R74` far end** - do they meet at the shunt-hot node, or does R68 tie back
+   to `U4:1` (that would prove the feedback resistor / inverting-amp config)?
+3. **`U4:5 / :6 / :7`** (second op-amp A2) - to a battery+ divider (=voltage monitor) or a 2nd shunt tap?
+4. Confirm `R75 / R76 / R70` roles (likely the rest of the gain/divider network for A1/A2).
+
+Update: **`U4:1` is shorted directly to `U4:2`** (zero ohms, no feedback resistor).
+=> A1 is a **unity-gain voltage follower (buffer)**, NOT the current amplifier.
+
+### Revised interpretation: A1 = reference buffer, A2 = the current amp
+- **A1 (pins 1/2/3)** buffers the R63/R65 (5V-derived, RC-filtered) **reference**: pin3 in,
+  pin1=pin2 out = low-impedance copy of that reference, fed out through `R68`.
+- This buffered reference is the **offset/bias** the actual shunt amplifier swings around.
+- So the **current measurement is on A2 (pins 5/6/7)** - that is now the pin pair to chase.
+
+### Next checks (now focused on A2)
+1. **`R68` far end** - where does the buffered reference land? (expect: A2's input network, pin5 or pin6).
+2. **`U4:6 (IN2-)` and `U4:5 (IN2+)`** - one should tie to the **shunt** (through R74/R75/R76 from the
+   R72/R73 hot side), the other to the buffered reference / feedback. That pair = the current sense.
+3. **`U4:7 (OUT2)` -> ?** THE battery-current analog output - trace to an STM32 ADC pin.
+4. Gain = set by the R network around A2 (R70/R75/R76...) once both inputs + feedback are known.
+
+Update: **`U4:7` (OUT2) -> `C42:L` and `R76:L`** (output node ties to cap C42 + resistor R76).
+- `C42` on OUT2 = filter cap (if its other pad is GND -> RC low-pass on the current signal;
+  if it sits across R76 -> feedback/stability cap).
+- `R76` off OUT2 is the key one: tracing `R76:R` ->
+  - if `R76:R -> U4:6 (IN2-)` => R76 = **feedback resistor of A2** (sets the gain). [strong: confirms current amp]
+  - if `R76:R -> STM32 pin`   => R76 = **output series R to the ADC** (then OUT2 = battery-current to MCU).
+- (R76 is in the left column R74/R75/R76, next to C42 just above U4 - consistent with the A2 output stage.)
+
+Update: **`R76:R -> U4:6 (IN2-)`** => `R76` = **feedback resistor of A2**. CONFIRMED:
+A2 (pins 5/6/7) is the current-sense amplifier (inverting/difference), gain = `R76 / R_in`.
+C42 (also on pin7) is most likely the feedback cap across R76 = RC low-pass on the current signal.
+
+So the U4 picture is now:
+- **A1 (1/2/3)** = unity buffer of the R63/R65 (5V) reference -> low-Z bias via R68.
+- **A2 (5/6/7)** = shunt current amp; `pin6 (IN2-)` summing node, `R76` feedback, `pin7 (OUT2)` = current out.
+
+### Remaining to confirm
+1. **`U4:6` input resistor** (the OTHER R on pin6 besides R76) -> to the shunt (R74/R75 from R72/R73 hot)
+   or to the buffered reference? That sets which way the amp reads + the gain denominator. (likely R70 or R75)
+2. **`U4:5 (IN2+)`** -> buffered reference from R68? or a shunt tap? (sets the offset/common-mode)
+3. **Does the `pin7`/OUT2 node reach an STM32 ADC pin?** <-- the whole point; not yet traced to the MCU.
+4. Read the markings/values of R76 + the pin6 input R -> compute the gain (V_out per amp of battery current).
+
+Update: **`U4:7` (OUT2) -> `R71` -> STM32 `PA7`**. PA7 = **ADC_IN7**, so the battery-current
+analog goes to STM32 ADC channel 7 (R71 = series input resistor to the ADC pin). CHAIN COMPLETE:
+`battery- -> shunt R72||R73 -> A2 amp (U4) -> R71 -> PA7 / ADC_IN7`.
+
+=> U4 is confirmed a **battery low-side current-sense front-end** (dual op-amp: A1 buffers a 5V
+reference, A2 amplifies the shunt). Function class settled; exact ST part still unidentified but no
+longer needed for firmware. PA7 is the pin to add as an ADC channel when we wire battery-current read.
+
+### Still open (nice-to-have, not blocking)
+- `U4:6` input resistor value + `R76` value -> gain (V/A). With R72||R73 shunt value -> amps per ADC count.
+- `U4:5 (IN2+)` source (buffered ref vs shunt tap) - sets the zero-current offset on PA7.
+- `U4:1`/A2 second-stage exact role of R74/R75/R70 in the divider chain.
+
+(log continues)
+
 ## Useful References
 
 - ST TSC101 current-sense amplifier: https://www.st.com/resource/en/datasheet/tsc101.pdf

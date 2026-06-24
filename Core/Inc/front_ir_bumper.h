@@ -41,6 +41,16 @@ extern volatile int16_t g_front_ir_r_rate;
 extern volatile int16_t g_front_ir_f_rate;
 extern volatile int16_t g_front_ir_l_rate;
 
+/* Battery low-side current sense at PA7/ADC_IN7 (U4 OUT2). Raw 12-bit MEAN of the
+ * half-buffer - NOT carrier-demodulated. Use the helper for millivolts at the pin. */
+extern volatile uint16_t g_batt_isense_adc;
+
+/* Convert the PA7 raw ADC count to millivolts (12-bit, 3.3 V Vref). */
+static inline uint16_t FrontIrBumper_BattMilliVolts(void)
+{
+  return (uint16_t)(((uint32_t)g_batt_isense_adc * 3300U) / 4095U);
+}
+
 /* Powers the sensor rails, starts the IR carrier (TIM2_CH3 on PB10) and arms the
  * DMA acquisition. receiver_adc is the ADC wired to the J7 R/F/L inputs;
  * carrier_tim is TIM2 (CubeMX: Output Compare CH3 toggle, TRGO = update). */
