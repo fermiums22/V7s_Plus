@@ -30,6 +30,7 @@
 #include "base_ir.h"
 #include "bumper_hit.h"
 #include "caster_odo.h"
+#include "ir_remote.h"
 
 /* USER CODE END Includes */
 
@@ -57,8 +58,10 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc;
 
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef hdma_usart1_rx;
@@ -76,9 +79,11 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC_Init(void);
+static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -119,9 +124,11 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC_Init();
+  MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_USART1_UART_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 #if MOTOR_TEST_ENABLE
   MotorControl_Init(&htim3, &hadc);
@@ -135,6 +142,7 @@ int main(void)
   BaseIr_Init();    /* 5 dock/base IR-beacon receivers (polled) for homing direction */
   BumperHit_Init(); /* PB5/PE12 impact sensors on EXTI -> instant latched hit status */
   CasterOdo_Init(); /* J20 front-caster odometry: U10 OUT1 -> PD2 EXTI2 edge counter */
+  IrRemote_Init(&htim6); /* NEC decode + direction on the 5 IR rx (EXTI + TIM6 us clock) */
   MotorControl_Init(&htim3, &hadc);  /* wheels: PWM TIM3 + encoders (ADC handle unused) */
   Console_Init();   /* USART1 (JP1) RX DMA ring + IRQ-driven TX ring */
   Cmd_Init();
@@ -196,7 +204,8 @@ int main(void)
 #else
     FrontIrBumper_Task();
     CliffIr_Task();
-    BaseIr_Task();        /* poll the 5 dock-beacon receivers */
+    BaseIr_Task();        /* poll the 5 dock-beacon receivers (homing strength) */
+    IrRemote_Task();      /* merge per-receiver NEC decodes -> command + direction */
     MotorControl_Task();  /* brakes on a latched bumper hit (checked inside) */
     {
       uint8_t rx_c; int rx_port;
@@ -406,6 +415,70 @@ static void MX_ADC_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 47;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 999;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -507,6 +580,44 @@ static void MX_TIM3_Init(void)
 }
 
 /**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 47;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 65535;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -566,7 +677,7 @@ static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
-
+  __HAL_RCC_SYSCFG_CLK_ENABLE();   /* EXTI line routing (EXTICR) lives in SYSCFG on F0 */
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
@@ -586,9 +697,6 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Q24_GPIO_Port, Q24_Pin, GPIO_PIN_SET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(BUZZER1_Q17_GPIO_Port, BUZZER1_Q17_Pin, GPIO_PIN_RESET);
-
   /*Configure GPIO pins : SWITCHED_SENSOR_5V_EN_Pin FRONT_IR_SENSOR_3V3_EN_Pin MOTOR_R_PHASE_Pin */
   GPIO_InitStruct.Pin = SWITCHED_SENSOR_5V_EN_Pin|FRONT_IR_SENSOR_3V3_EN_Pin|MOTOR_R_PHASE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -598,9 +706,15 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : BASE_IR_RIGHT_Pin MOTOR_R_ENC_SIGNAL_Pin BASE_IR_FRONT_R_Pin */
   GPIO_InitStruct.Pin = BASE_IR_RIGHT_Pin|MOTOR_R_ENC_SIGNAL_Pin|BASE_IR_FRONT_R_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : BUMPER_HIT_RIGHT_Pin */
+  GPIO_InitStruct.Pin = BUMPER_HIT_RIGHT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(BUMPER_HIT_RIGHT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : FRONT_IR_Q11_PULSE_Pin MOTOR_L_PHASE_Pin */
   GPIO_InitStruct.Pin = FRONT_IR_Q11_PULSE_Pin|MOTOR_L_PHASE_Pin;
@@ -611,15 +725,19 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : BASE_IR_FRONT_L_Pin */
   GPIO_InitStruct.Pin = BASE_IR_FRONT_L_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(BASE_IR_FRONT_L_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : MOTOR_L_NFAULT_Pin BASE_IR_LEFT_Pin MOTOR_R_NFAULT_Pin MOTOR_L_ENC_SIGNAL_Pin
-                           BASE_IR_REAR_Pin */
-  GPIO_InitStruct.Pin = MOTOR_L_NFAULT_Pin|BASE_IR_LEFT_Pin|MOTOR_R_NFAULT_Pin|MOTOR_L_ENC_SIGNAL_Pin
-                          |BASE_IR_REAR_Pin;
+  /*Configure GPIO pins : MOTOR_L_NFAULT_Pin MOTOR_R_NFAULT_Pin */
+  GPIO_InitStruct.Pin = MOTOR_L_NFAULT_Pin|MOTOR_R_NFAULT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : BASE_IR_LEFT_Pin CASTER_ODO_Pin MOTOR_L_ENC_SIGNAL_Pin BASE_IR_REAR_Pin */
+  GPIO_InitStruct.Pin = BASE_IR_LEFT_Pin|CASTER_ODO_Pin|MOTOR_L_ENC_SIGNAL_Pin|BASE_IR_REAR_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
@@ -630,12 +748,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(Q24_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BUZZER1_Q17_Pin */
-  GPIO_InitStruct.Pin = BUZZER1_Q17_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(BUZZER1_Q17_GPIO_Port, &GPIO_InitStruct);
+  /*Configure GPIO pin : BUMPER_HIT_LEFT_Pin */
+  GPIO_InitStruct.Pin = BUMPER_HIT_LEFT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(BUMPER_HIT_LEFT_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI2_3_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI2_3_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -643,6 +767,44 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/* Single HAL EXTI dispatcher (the IRQ vectors in stm32f0xx_it.c call
+ * HAL_GPIO_EXTI_IRQHandler per line, which clears the pending bit and lands
+ * here with exactly the firing pin). Each driver only latches/counts. */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  switch (GPIO_Pin)
+  {
+    case BUMPER_HIT_LEFT_Pin:        /* PB5  EXTI5  */
+    case BUMPER_HIT_RIGHT_Pin:       /* PE12 EXTI12 */
+      BumperHit_OnEdge(GPIO_Pin);
+      break;
+    case CASTER_ODO_Pin:             /* PD2  EXTI2  */
+      CasterOdo_OnEdge();
+      break;
+    case MOTOR_L_ENC_SIGNAL_Pin:     /* PD3  EXTI3  */
+    case MOTOR_R_ENC_SIGNAL_Pin:     /* PE8  EXTI8  */
+      MotorControl_OnEncoderEdge(GPIO_Pin);
+      break;
+    case BASE_IR_FRONT_L_Pin:        /* PB11 EXTI11 */
+      IrRemote_OnEdge(IR_RX_FRONT_L);
+      break;
+    case BASE_IR_FRONT_R_Pin:        /* PE15 EXTI15 */
+      IrRemote_OnEdge(IR_RX_FRONT_R);
+      break;
+    case BASE_IR_LEFT_Pin:           /* PD13 EXTI13 */
+      IrRemote_OnEdge(IR_RX_LEFT);
+      break;
+    case BASE_IR_RIGHT_Pin:          /* PE6  EXTI6  */
+      IrRemote_OnEdge(IR_RX_RIGHT);
+      break;
+    case BASE_IR_REAR_Pin:           /* PD4  EXTI4  */
+      IrRemote_OnEdge(IR_RX_REAR);
+      break;
+    default:
+      break;
+  }
+}
 
 /* USER CODE END 4 */
 

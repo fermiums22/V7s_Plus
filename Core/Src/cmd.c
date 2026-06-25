@@ -24,6 +24,7 @@
 #include "base_ir.h"
 #include "bumper_hit.h"
 #include "caster_odo.h"
+#include "ir_remote.h"
 #include "motor_control.h"
 #include <string.h>
 #include <stdio.h>
@@ -105,7 +106,9 @@ static void cmd_help(void)
   Console_Print("  fwd|back [rev]        - roll both wheels N revs (default 1) @80rpm\r\n");
   Console_Print("  spin [rpm]           - RIGHT wheel continuous spin (default 60; brake by hand)\r\n");
   Console_Print("  mstop                - stop the wheels\r\n");
+  Console_Print("  motors|mstat [clear] - per-wheel state (IDLE/RUN/STALL/FAULT) + nFAULT latch\r\n");
   Console_Print("  hit                  - bumper-hit L/R (PB5/PE12) EXTI-latched; read clears\r\n");
+  Console_Print("  remote               - last NEC IR command + which receivers saw it (dir)\r\n");
   Console_Print("  ir on|off [Hz]       - stream the IR telemetry (alias of stream)\r\n");
   Console_Print("  stream on|off [Hz]   - IR,<ms>,<R>,<F>,<L>,<dR>,<dF>,<dL>  (sig + rate)\r\n");
   Console_Print("  thr [near] [move]    - get/set NEAR signal + MOVE rate thresholds\r\n");
@@ -364,6 +367,29 @@ static void cmd_dispatch(char *line)
 
   if (!strcmp(cmd, "mstop")) { MotorControl_Stop(); Console_Print("OK motors stop\r\n"); return; }
 
+  if (!strcmp(cmd, "motors") || !strcmp(cmd, "mstat"))   /* per-wheel state + nFAULT latch */
+  {
+    if (arg && !strcmp(arg, "clear")) { MotorControl_ClearFault(); Console_Print("OK motor faults cleared\r\n"); return; }
+    MotorStatus L, R;
+    MotorControl_GetMotorStatus(MOTOR_LEFT,  &L);
+    MotorControl_GetMotorStatus(MOTOR_RIGHT, &R);
+    snprintf(b, sizeof b,
+             "L %-5s pos=%ld spd=%ld eps/%ld rpm pwm=%d I=%u mV enc=%lu lvl=%d  nFAULT a=%d l=%d n=%lu\r\n",
+             MotorControl_StateName(L.state), (long)L.position_edges, (long)L.speed_edges_per_s,
+             (long)L.speed_rpm, L.pwm_command, (unsigned)L.current_mv,
+             (unsigned long)L.edge_count, L.encoder_level,
+             L.fault_active, L.fault_latched, (unsigned long)L.fault_count);
+    Console_Print(b);
+    snprintf(b, sizeof b,
+             "R %-5s pos=%ld spd=%ld eps/%ld rpm pwm=%d I=%u mV enc=%lu lvl=%d  nFAULT a=%d l=%d n=%lu\r\n",
+             MotorControl_StateName(R.state), (long)R.position_edges, (long)R.speed_edges_per_s,
+             (long)R.speed_rpm, R.pwm_command, (unsigned)R.current_mv,
+             (unsigned long)R.edge_count, R.encoder_level,
+             R.fault_active, R.fault_latched, (unsigned long)R.fault_count);
+    Console_Print(b);
+    return;
+  }
+
   if (!strcmp(cmd, "spin"))   /* RIGHT wheel continuous spin (bench current test; brake by hand) */
   {
     long rpm = 60;
@@ -382,6 +408,33 @@ static void cmd_dispatch(char *line)
              BumperHit_Level(BUMPER_HIT_LEFT), BumperHit_Level(BUMPER_HIT_RIGHT));
     Console_Print(b);
     BumperHit_Clear();
+    return;
+  }
+
+  if (!strcmp(cmd, "remote"))   /* last NEC command + which receivers saw it */
+  {
+    IrRemoteEvent ev;
+    if (!IrRemote_Get(&ev) || !ev.valid)
+    {
+      Console_Print("REMOTE no command yet\r\n");
+      return;
+    }
+    char seen[24];
+    int p = 0;
+    for (int i = 0; i < IR_REMOTE_RX_COUNT; i++)
+    {
+      if (ev.dir_mask & (1u << i))
+      {
+        const char *n = IrRemote_DirName(i);
+        while (n && *n && p < (int)sizeof(seen) - 2) seen[p++] = *n++;
+        if (p < (int)sizeof(seen) - 1) seen[p++] = ' ';
+      }
+    }
+    seen[p] = '\0';
+    snprintf(b, sizeof b, "REMOTE addr=0x%02X cmd=0x%02X %s seen=[%s] age=%lums n=%lu\r\n",
+             ev.address, ev.command, ev.repeat ? "repeat" : "press", seen,
+             (unsigned long)(HAL_GetTick() - ev.tick), (unsigned long)ev.count);
+    Console_Print(b);
     return;
   }
 

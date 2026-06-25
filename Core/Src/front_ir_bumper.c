@@ -32,38 +32,42 @@
 #define FRONT_IR_CARRIER_CHANNEL TIM_CHANNEL_3
 
 /* ADC scan: channels are converted in ascending channel-number order (forward
- * scan over CHSELR), so each DMA trigger stores the 11 samples in channel order
- * [PA1, PA2, PA3, PA5, PA7, PB0, PC0, PC1, PC2, PC3, PC4]. The 8 reflective IR
+ * scan over CHSELR), so each DMA trigger stores the 13 samples in channel order
+ * [PA1, PA2, PA3, PA5, PA7, PB0, PB1, PC0, PC1, PC2, PC3, PC4, PC5]. The 8 reflective IR
  * sense lines ride the one Q11/PB10 carrier and are demodulated (on-off). PA1
  * (ch1, 24V input/dock-rail sense), PA2 (ch2, battery voltage) and PA7 (ch7,
  * battery current from U4) are NOT carrier-modulated, so for them we publish the
- * plain MEAN of the half-buffer (the demod difference would be ~0). Pins are
- * ADC_INx in the .ioc (MspInit sets them analog); this engine only picks the scan
- * subset (drops motor-current ch 9/15). */
+ * plain MEAN of the half-buffer (the demod difference would be ~0). The two motor
+ * VPROPI currents (PB1/ch9, PC5/ch15) are likewise published as plain MEANs. Pins
+ * are ADC_INx in the .ioc (MspInit sets them analog); this engine scans all 13. */
 #define FRONT_IR_VIN_ADC_CHANNEL     ADC_CHANNEL_1  /* 24V input/dock rail -> PA1 */
 #define FRONT_IR_VBAT_ADC_CHANNEL    ADC_CHANNEL_2  /* battery voltage     -> PA2 */
 #define FRONT_IR_RCLIFF_ADC_CHANNEL  ADC_CHANNEL_3  /* J2:4  right cliff   -> PA3 */
 #define FRONT_IR_F_ADC_CHANNEL       ADC_CHANNEL_5  /* J7:6  F zone        -> PA5 */
 #define FRONT_IR_BATT_ADC_CHANNEL    ADC_CHANNEL_7  /* U4 OUT2 batt current-> PA7 */
 #define FRONT_IR_L_ADC_CHANNEL       ADC_CHANNEL_8  /* J7:7  L zone        -> PB0 */
+#define FRONT_IR_MOTL_ADC_CHANNEL    ADC_CHANNEL_9  /* U2 pin15 VPROPI mot-L-> PB1 */
 #define FRONT_IR_SIDE_ADC_CHANNEL    ADC_CHANNEL_10 /* J17:5 side IR TRX RX-> PC0 */
 #define FRONT_IR_LCLIFF_ADC_CHANNEL  ADC_CHANNEL_11 /* J17:4 left cliff    -> PC1 */
 #define FRONT_IR_FLCLIFF_ADC_CHANNEL ADC_CHANNEL_12 /* J4:3  front-L cliff -> PC2 */
 #define FRONT_IR_R_ADC_CHANNEL       ADC_CHANNEL_13 /* J7:5  R zone        -> PC3 */
 #define FRONT_IR_FRCLIFF_ADC_CHANNEL ADC_CHANNEL_14 /* J3:3  front-R cliff -> PC4 */
-/* Forward scan converts in ASCENDING channel number: 1,2,3,5,7,8,10,11,12,13,14. */
-#define FRONT_IR_SCAN_CHANNELS 11U
-#define FRONT_IR_IDX_VIN     0U /* ch1  PA1 24V input/dock rail (MEAN) */
-#define FRONT_IR_IDX_VBAT    1U /* ch2  PA2 battery voltage (MEAN)  */
-#define FRONT_IR_IDX_RCLIFF  2U /* ch3  PA3 right cliff             */
-#define FRONT_IR_IDX_F       3U /* ch5  PA5 front-centre zone       */
-#define FRONT_IR_IDX_BATT    4U /* ch7  PA7 battery current (MEAN)  */
-#define FRONT_IR_IDX_L       5U /* ch8  PB0 front-left zone         */
-#define FRONT_IR_IDX_SIDE    6U /* ch10 PC0 left side IR transceiver*/
-#define FRONT_IR_IDX_LCLIFF  7U /* ch11 PC1 left cliff              */
-#define FRONT_IR_IDX_FLCLIFF 8U /* ch12 PC2 front-left cliff        */
-#define FRONT_IR_IDX_R       9U /* ch13 PC3 front-right zone        */
-#define FRONT_IR_IDX_FRCLIFF 10U /* ch14 PC4 front-right cliff      */
+#define FRONT_IR_MOTR_ADC_CHANNEL    ADC_CHANNEL_15 /* U6 pin15 VPROPI mot-R-> PC5 */
+/* Forward scan converts in ASCENDING channel number: 1,2,3,5,7,8,9,10,11,12,13,14,15. */
+#define FRONT_IR_SCAN_CHANNELS 13U
+#define FRONT_IR_IDX_VIN     0U  /* ch1  PA1 24V input/dock rail (MEAN) */
+#define FRONT_IR_IDX_VBAT    1U  /* ch2  PA2 battery voltage (MEAN)  */
+#define FRONT_IR_IDX_RCLIFF  2U  /* ch3  PA3 right cliff             */
+#define FRONT_IR_IDX_F       3U  /* ch5  PA5 front-centre zone       */
+#define FRONT_IR_IDX_BATT    4U  /* ch7  PA7 battery current (MEAN)  */
+#define FRONT_IR_IDX_L       5U  /* ch8  PB0 front-left zone         */
+#define FRONT_IR_IDX_MOTL    6U  /* ch9  PB1 motor-L VPROPI (MEAN)   */
+#define FRONT_IR_IDX_SIDE    7U  /* ch10 PC0 left side IR transceiver*/
+#define FRONT_IR_IDX_LCLIFF  8U  /* ch11 PC1 left cliff              */
+#define FRONT_IR_IDX_FLCLIFF 9U  /* ch12 PC2 front-left cliff        */
+#define FRONT_IR_IDX_R       10U /* ch13 PC3 front-right zone        */
+#define FRONT_IR_IDX_FRCLIFF 11U /* ch14 PC4 front-right cliff       */
+#define FRONT_IR_IDX_MOTR    12U /* ch15 PC5 motor-R VPROPI (MEAN)   */
 
 /* One half-buffer = PERIODS_PER_HALF carrier periods. Each period = 2 ADC
  * triggers (on-half + off-half), each trigger = FRONT_IR_SCAN_CHANNELS samples.
@@ -90,6 +94,9 @@ volatile uint16_t g_vbat_sense_adc = 0;
 /* 24V INPUT / dock-rail sense (PA1/ADC_IN1): raw 12-bit MEAN. Same node as the
  * dock power (J10) through a diode-OR; divided down to the pin. Cal TBD. */
 volatile uint16_t g_vin_sense_adc = 0;
+/* Motor VPROPI current sense means (PB1/ch9 left, PC5/ch15 right), raw 12-bit. */
+volatile uint16_t g_motor_l_isense_adc = 0;
+volatile uint16_t g_motor_r_isense_adc = 0;
 /* Rate of change of the reflected-IR signal per zone (this update minus the
  * previous, ~15 Hz). Positive = object getting closer / brightening
  * (approaching); negative = receding. Detects MOVING obstacles that a plain
@@ -127,9 +134,9 @@ static void FrontIrBumper_AdcDmaInit(void)
    * the .ioc and set to GPIO_MODE_ANALOG by the CubeMX-generated
    * HAL_ADC_MspInit, which already ran in MX_ADC_Init - nothing to do here. */
 
-  /* Select the 8 reflective-IR sense channels + battery current (ch7); drop the
-   * motor-current channels 9/15 for this engine. CHSELR converts in ascending
-   * channel order, so PA7/ch7 lands at scan index FRONT_IR_IDX_BATT. */
+  /* Full 13-channel scan: 8 reflective-IR sense lines + battery current (ch7) +
+   * both motor VPROPI currents (ch9/ch15). CHSELR converts in ascending channel
+   * order, so e.g. PA7/ch7 lands at FRONT_IR_IDX_BATT, PB1/ch9 at IDX_MOTL. */
   s_adc->Instance->CHSELR = 0;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
   sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5; /* low noise; 11ch ~198us << 500us trigger */
@@ -145,6 +152,8 @@ static void FrontIrBumper_AdcDmaInit(void)
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_L_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
+  sConfig.Channel = FRONT_IR_MOTL_ADC_CHANNEL;
+  (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_SIDE_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_LCLIFF_ADC_CHANNEL;
@@ -154,6 +163,8 @@ static void FrontIrBumper_AdcDmaInit(void)
   sConfig.Channel = FRONT_IR_R_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
   sConfig.Channel = FRONT_IR_FRCLIFF_ADC_CHANNEL;
+  (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
+  sConfig.Channel = FRONT_IR_MOTR_ADC_CHANNEL;
   (void)HAL_ADC_ConfigChannel(s_adc, &sConfig);
 
   /* DMA1_Channel1 <- ADC1, circular, half-word, memory-incrementing. */
@@ -279,6 +290,12 @@ static void FrontIrBumper_DemodHalf(const uint16_t *half)
   /* 24V input / dock-rail voltage (PA1): same plain MEAN. */
   g_vin_sense_adc = (uint16_t)((a[FRONT_IR_IDX_VIN] + b[FRONT_IR_IDX_VIN])
                                / (int32_t)(2U * FRONT_IR_PERIODS_PER_HALF));
+
+  /* Motor VPROPI currents (PB1/ch9, PC5/ch15): plain MEAN, not carrier-modulated. */
+  g_motor_l_isense_adc = (uint16_t)((a[FRONT_IR_IDX_MOTL] + b[FRONT_IR_IDX_MOTL])
+                                    / (int32_t)(2U * FRONT_IR_PERIODS_PER_HALF));
+  g_motor_r_isense_adc = (uint16_t)((a[FRONT_IR_IDX_MOTR] + b[FRONT_IR_IDX_MOTR])
+                                    / (int32_t)(2U * FRONT_IR_PERIODS_PER_HALF));
 
   /* Approach detection: change vs previous update. */
   g_front_ir_f_rate = (int16_t)(g_front_ir_f_signal - s_front_ir_f_prev);

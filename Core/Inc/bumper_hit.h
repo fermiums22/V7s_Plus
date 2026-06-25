@@ -12,8 +12,8 @@
   *  flag; it never commands the motors. The motor-control loop polls
   *  BumperHit_Active() at the top of each cycle and brakes immediately, then the
   *  (future) navigation layer decides which way to back off / turn and clears the
-  *  latch with BumperHit_Clear(). User-owned; EXTI is configured here, not by
-  *  CubeMX.
+  *  latch with BumperHit_Clear(). Pins/EXTI/NVIC owned by CubeMX (MX_GPIO_Init);
+  *  the shared HAL_GPIO_EXTI_Callback dispatcher in main.c calls BumperHit_OnEdge().
   ******************************************************************************
   */
 #ifndef BUMPER_HIT_H
@@ -33,6 +33,7 @@ typedef enum
 } BumperHitSide;
 
 void     BumperHit_Init(void);
+void     BumperHit_OnEdge(uint16_t pin); /* EXTI dispatch hook (called from main.c) */
 int      BumperHit_Active(void);     /* 1 if any impact latched since last clear */
 uint8_t  BumperHit_Events(void);     /* sticky bitmask: bit BUMPER_HIT_LEFT/RIGHT */
 uint32_t BumperHit_LastTick(void);   /* HAL tick of the most recent impact */

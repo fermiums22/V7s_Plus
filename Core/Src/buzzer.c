@@ -15,15 +15,17 @@
 #include "buzzer.h"
 
 /* ---- tone generator (TIM1_CH4 PWM on PA11) -------------------------------- */
+/* TIM1 (PSC 47 -> 1 MHz tick, CH4 PWM on PA11 = AF2) is configured by CubeMX
+ * MX_TIM1_Init; this driver only retunes ARR/CCR4 per note and starts/stops the
+ * channel. PA11 routing is done by HAL_TIM_MspPostInit. */
 
 #define BUZZER_TIM_TICK_HZ   1000000u   /* PSC 47 on 48 MHz PCLK */
 
-static TIM_HandleTypeDef s_htim;
+extern TIM_HandleTypeDef htim1;
 
 static void buzzer_tone_off(void)
 {
-  HAL_TIM_PWM_Stop(&s_htim, TIM_CHANNEL_4);
-  HAL_GPIO_WritePin(BUZZER1_Q17_GPIO_Port, BUZZER1_Q17_Pin, GPIO_PIN_RESET);
+  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_4);
 }
 
 static void buzzer_tone_on(uint16_t freq_hz)
@@ -41,46 +43,15 @@ static void buzzer_tone_on(uint16_t freq_hz)
   if (arr > 65535u)  arr = 65535u;
   arr -= 1u;
 
-  __HAL_TIM_SET_AUTORELOAD(&s_htim, arr);
-  __HAL_TIM_SET_COMPARE(&s_htim, TIM_CHANNEL_4, (arr + 1u) / 2u); /* 50% */
-  __HAL_TIM_SET_COUNTER(&s_htim, 0u);
-  HAL_TIM_PWM_Start(&s_htim, TIM_CHANNEL_4); /* enables MOE for TIM1 */
+  __HAL_TIM_SET_AUTORELOAD(&htim1, arr);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, (arr + 1u) / 2u); /* 50% */
+  __HAL_TIM_SET_COUNTER(&htim1, 0u);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4); /* enables MOE for TIM1 */
 }
 
 void Buzzer_Init(void)
 {
-  GPIO_InitTypeDef gpio = {0};
-  TIM_OC_InitTypeDef oc = {0};
-
-  __HAL_RCC_TIM1_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-
-  /* PA11 -> TIM1_CH4 (AF2), overriding the plain-output state from MX_GPIO_Init */
-  gpio.Pin = BUZZER1_Q17_Pin;
-  gpio.Mode = GPIO_MODE_AF_PP;
-  gpio.Pull = GPIO_NOPULL;
-  gpio.Speed = GPIO_SPEED_FREQ_LOW;
-  gpio.Alternate = GPIO_AF2_TIM1;
-  HAL_GPIO_Init(BUZZER1_Q17_GPIO_Port, &gpio);
-
-  s_htim.Instance = TIM1;
-  s_htim.Init.Prescaler = 47u;                 /* 48 MHz / 48 = 1 MHz */
-  s_htim.Init.CounterMode = TIM_COUNTERMODE_UP;
-  s_htim.Init.Period = 999u;                   /* placeholder, set per note */
-  s_htim.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  s_htim.Init.RepetitionCounter = 0u;
-  s_htim.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  HAL_TIM_PWM_Init(&s_htim);
-
-  oc.OCMode = TIM_OCMODE_PWM1;
-  oc.Pulse = 0u;
-  oc.OCPolarity = TIM_OCPOLARITY_HIGH;
-  oc.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  oc.OCFastMode = TIM_OCFAST_DISABLE;
-  oc.OCIdleState = TIM_OCIDLESTATE_RESET;
-  oc.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  HAL_TIM_PWM_ConfigChannel(&s_htim, &oc, TIM_CHANNEL_4);
-
+  /* TIM1_CH4 / PA11 are owned by CubeMX (MX_TIM1_Init); just ensure silence. */
   buzzer_tone_off();
 }
 
@@ -127,7 +98,7 @@ static uint32_t       s_note_end;   /* HAL tick when current step ends */
 
 void Buzzer_Play(BuzzerMelody m)
 {
-  if ((int)m < 0 || m >= BUZZER_MELODY_COUNT)
+  if ((unsigned)m >= (unsigned)BUZZER_MELODY_COUNT)
   {
     return;
   }

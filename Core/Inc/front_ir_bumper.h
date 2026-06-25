@@ -63,6 +63,22 @@ static inline int FrontIrBumper_BattMilliAmps(void)
   return (ma < 0) ? 0 : ma;
 }
 
+/* Motor low-side current sense via DRV8801 VPROPI: L = PB1/ADC_IN9 (U2 pin 15),
+ * R = PC5/ADC_IN15 (U6 pin 15). Raw 12-bit MEAN of the half-buffer (NOT carrier-
+ * demodulated). VPROPI is duty-weighted and falls to 0 V during slow-decay
+ * recirculation, so this is the average active-drive current sense, not a peak.
+ * Helper gives millivolts at the pin; amps cal (VPROPI gain x Rsense) is TBD. */
+extern volatile uint16_t g_motor_l_isense_adc;
+extern volatile uint16_t g_motor_r_isense_adc;
+static inline uint16_t FrontIrBumper_MotorLMilliVolts(void)
+{
+  return (uint16_t)(((uint32_t)g_motor_l_isense_adc * 3300U) / 4095U);
+}
+static inline uint16_t FrontIrBumper_MotorRMilliVolts(void)
+{
+  return (uint16_t)(((uint32_t)g_motor_r_isense_adc * 3300U) / 4095U);
+}
+
 /* Battery VOLTAGE sense at PA2/ADC_IN2 (likely a divider from the pack). Raw
  * 12-bit MEAN; this returns the millivolts AT THE PIN. Pack-voltage calibration
  * (divider ratio) is TBD - user will supply real input values. */

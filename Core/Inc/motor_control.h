@@ -22,6 +22,41 @@ typedef enum
   MOTOR_CONTROL_MODE_POSITION
 } MotorControlMode;
 
+typedef enum
+{
+  MOTOR_LEFT = 0,
+  MOTOR_RIGHT = 1
+} MotorSide;
+
+/* Runtime state of one wheel, derived live (display/diagnostics, not control). */
+typedef enum
+{
+  MOTOR_STATE_IDLE = 0,   /* not commanded (mode OFF)                          */
+  MOTOR_STATE_RUNNING,    /* commanded and turning                             */
+  MOTOR_STATE_STALLED,    /* commanded with drive applied but not turning      */
+  MOTOR_STATE_FAULT       /* driver nFAULT held low (OCP / UVLO / thermal)     */
+} MotorState;
+
+/* Complete single-point snapshot of one wheel: control state, encoder odometry +
+ * speed, the applied PWM, the VPROPI current sense, and the driver-fault latch. */
+typedef struct
+{
+  MotorState       state;
+  MotorControlMode mode;
+  int32_t          position_edges;
+  float            position_rev;
+  int32_t          speed_edges_per_s;   /* speed from the encoder */
+  float            speed_rpm;           /* same, in wheel rpm     */
+  int16_t          pwm_command;         /* signed applied PWM (sign = direction) */
+  uint16_t         current_adc;         /* VPROPI raw 12-bit (L=PB1/ch9, R=PC5/ch15) */
+  uint16_t         current_mv;          /* VPROPI millivolts at the pin */
+  uint32_t         edge_count;
+  uint8_t          encoder_level;
+  uint8_t          fault_active;   /* nFAULT currently held low (debounced)    */
+  uint8_t          fault_latched;  /* sticky since boot / last ClearFault      */
+  uint32_t         fault_count;    /* high->low fault edges (e.g. OCP retries) */
+} MotorStatus;
+
 typedef struct
 {
   int32_t position_edges;
@@ -55,6 +90,7 @@ extern volatile uint8_t g_motor_r_enc_level;
 extern volatile int16_t g_motor_r_pwm_command;
 
 void MotorControl_Init(TIM_HandleTypeDef *pwm_timer, ADC_HandleTypeDef *current_adc);
+void MotorControl_OnEncoderEdge(uint16_t pin); /* EXTI dispatch hook (called from main.c) */
 void MotorControl_Task(void);
 void MotorControl_Stop(void);
 void MotorControl_SetRightTestPwm(int16_t signed_pwm);
@@ -74,6 +110,9 @@ void MotorControl_MoveLinearRelative(float delta_m, float max_speed_mps);
 float MotorControl_RobotTurnWheelDistanceByDegrees(float angle_deg);
 float MotorControl_RobotTurnWheelDistanceByRadians(float angle_rad);
 void MotorControl_GetStatus(MotorControlStatus *status);
+void MotorControl_GetMotorStatus(MotorSide side, MotorStatus *status);
+const char *MotorControl_StateName(MotorState state);
+void MotorControl_ClearFault(void);   /* clear sticky nFAULT latch on both wheels */
 
 #ifdef __cplusplus
 }

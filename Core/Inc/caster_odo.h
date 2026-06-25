@@ -23,6 +23,7 @@ extern "C" {
 #include <stdint.h>
 
 void     CasterOdo_Init(void);
+void     CasterOdo_OnEdge(void);  /* EXTI dispatch hook (called from main.c) */
 uint32_t CasterOdo_Count(void);   /* edge count since boot / last reset */
 void     CasterOdo_Reset(void);
 int      CasterOdo_Level(void);    /* instantaneous PD2 level (1/0) */
