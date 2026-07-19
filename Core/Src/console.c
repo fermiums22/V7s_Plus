@@ -65,6 +65,11 @@ static void broadcast(const char *s, bool is_stream)
 
 void Console_Print(const char *s)  { broadcast(s, false); }
 void Console_Stream(const char *s) { broadcast(s, true); }
+void Console_WriteRaw(const uint8_t *data, uint16_t size)
+{
+  if (data == 0 || size == 0) return;
+  port_push(&cons[0], (const char *)data, size, false);
+}
 
 /* Drain one port's TX ring from its USART TXE interrupt. */
 static void port_tx_irq(console_t *p)

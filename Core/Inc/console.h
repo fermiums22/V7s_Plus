@@ -22,6 +22,7 @@ void Console_Init(void);              /* start RX DMA + TX IRQ                  
 void Console_Route(int port);         /* set output target: 0 or CONSOLE_BOTH     */
 void Console_Print(const char *s);    /* enqueue a response                       */
 void Console_Stream(const char *s);   /* enqueue telemetry, dropped if near full  */
+void Console_WriteRaw(const uint8_t *data, uint16_t size); /* binary protocol TX */
 bool Console_ReadByte(uint8_t *c, int *port);  /* pop a byte + its source port    */
 void Console_UartIrq(void *huart);    /* call from USART1_IRQHandler              */
 

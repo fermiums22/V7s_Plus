@@ -21,7 +21,16 @@ extern "C" {
 #endif
 
 #include "main.h"
+#include <stdbool.h>
 #include <stdint.h>
+
+typedef struct
+{
+  uint16_t vin_raw;
+  uint16_t vbat_raw;
+  uint16_t current_raw;
+  uint16_t dma_index;
+} FrontIrPowerSnapshot;
 
 /* Averaged carrier-ON / carrier-OFF ADC levels per zone (R/F/L). */
 extern volatile uint16_t g_front_ir_r_on_adc;
@@ -53,13 +62,21 @@ static inline uint16_t FrontIrBumper_BattMilliVolts(void)
 
 /* Battery current in mA from the PA7 voltage. 4-point bench calibration
  * (2026-06-24): mV = 1180 + 488*I[A]  =>  I[mA] = (mV - 1180) * 1000 / 488.
- * 1180 mV = ~0 A offset (U4 A1 reference), 488 mV/A slope. Clamped at 0. */
+ * 1180 mV = ~0 A offset (U4 A1 reference); positive = pack discharge,
+ * negative = charge. Keep the sign all the way to Modbus/HA. */
 #define BATT_ISENSE_OFFSET_MV 1180
 #define BATT_ISENSE_MV_PER_A  488
+static inline int16_t FrontIrBumper_BattMilliAmpsSigned(void)
+{
+  int32_t mv = (int32_t)FrontIrBumper_BattMilliVolts();
+  int32_t ma = ((mv - BATT_ISENSE_OFFSET_MV) * 1000) / BATT_ISENSE_MV_PER_A;
+  if (ma > 32767) ma = 32767;
+  if (ma < -32768) ma = -32768;
+  return (int16_t)ma;
+}
 static inline int FrontIrBumper_BattMilliAmps(void)
 {
-  int mv = (int)FrontIrBumper_BattMilliVolts();
-  int ma = ((mv - BATT_ISENSE_OFFSET_MV) * 1000) / BATT_ISENSE_MV_PER_A;
+  int ma = (int)FrontIrBumper_BattMilliAmpsSigned();
   return (ma < 0) ? 0 : ma;
 }
 
@@ -116,6 +133,9 @@ static inline uint32_t FrontIrBumper_VinRailMilliVolts(void)
 {
   return ((uint32_t)FrontIrBumper_VinPinMilliVolts() * VIN_DIV_NUM) / VIN_DIV_DEN;
 }
+
+/* Fast 4 ms power snapshot from the already-running 2 kHz ADC DMA ring. */
+bool FrontIrBumper_GetPowerSnapshot(FrontIrPowerSnapshot *snapshot);
 
 /* Powers the sensor rails, starts the IR carrier (TIM2_CH3 on PB10) and arms the
  * DMA acquisition. receiver_adc is the ADC wired to the J7 R/F/L inputs;

@@ -24,7 +24,6 @@
 #include "base_ir.h"
 #include "bumper_hit.h"
 #include "caster_odo.h"
-#include "ir_remote.h"
 #include "motor_control.h"
 #include <string.h>
 #include <stdio.h>
@@ -108,7 +107,6 @@ static void cmd_help(void)
   Console_Print("  mstop                - stop the wheels\r\n");
   Console_Print("  motors|mstat [clear] - per-wheel state (IDLE/RUN/STALL/FAULT) + nFAULT latch\r\n");
   Console_Print("  hit                  - bumper-hit L/R (PB5/PE12) EXTI-latched; read clears\r\n");
-  Console_Print("  remote               - last NEC IR command + which receivers saw it (dir)\r\n");
   Console_Print("  ir on|off [Hz]       - stream the IR telemetry (alias of stream)\r\n");
   Console_Print("  stream on|off [Hz]   - IR,<ms>,<R>,<F>,<L>,<dR>,<dF>,<dL>  (sig + rate)\r\n");
   Console_Print("  thr [near] [move]    - get/set NEAR signal + MOVE rate thresholds\r\n");
@@ -408,33 +406,6 @@ static void cmd_dispatch(char *line)
              BumperHit_Level(BUMPER_HIT_LEFT), BumperHit_Level(BUMPER_HIT_RIGHT));
     Console_Print(b);
     BumperHit_Clear();
-    return;
-  }
-
-  if (!strcmp(cmd, "remote"))   /* last NEC command + which receivers saw it */
-  {
-    IrRemoteEvent ev;
-    if (!IrRemote_Get(&ev) || !ev.valid)
-    {
-      Console_Print("REMOTE no command yet\r\n");
-      return;
-    }
-    char seen[24];
-    int p = 0;
-    for (int i = 0; i < IR_REMOTE_RX_COUNT; i++)
-    {
-      if (ev.dir_mask & (1u << i))
-      {
-        const char *n = IrRemote_DirName(i);
-        while (n && *n && p < (int)sizeof(seen) - 2) seen[p++] = *n++;
-        if (p < (int)sizeof(seen) - 1) seen[p++] = ' ';
-      }
-    }
-    seen[p] = '\0';
-    snprintf(b, sizeof b, "REMOTE addr=0x%02X cmd=0x%02X %s seen=[%s] age=%lums n=%lu\r\n",
-             ev.address, ev.command, ev.repeat ? "repeat" : "press", seen,
-             (unsigned long)(HAL_GetTick() - ev.tick), (unsigned long)ev.count);
-    Console_Print(b);
     return;
   }
 

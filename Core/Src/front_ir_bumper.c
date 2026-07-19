@@ -115,6 +115,43 @@ static DMA_HandleTypeDef s_hdma_adc;
 static uint16_t s_adc_buf[FRONT_IR_BUF_SAMPLES];
 static volatile uint8_t s_half_ready = 0; /* bit0: lower half, bit1: upper half */
 
+bool FrontIrBumper_GetPowerSnapshot(FrontIrPowerSnapshot *snapshot)
+{
+  enum { SNAPSHOT_FRAMES = 8 };
+  uint32_t remaining;
+  uint32_t write_index;
+  uint32_t vin_sum = 0u;
+  uint32_t vbat_sum = 0u;
+  uint32_t current_sum = 0u;
+  uint32_t frame;
+
+  if ((snapshot == NULL) || (s_adc == NULL) || (s_adc->DMA_Handle == NULL) ||
+      ((s_adc->DMA_Handle->Instance->CCR & DMA_CCR_EN) == 0u))
+  {
+    return false;
+  }
+
+  remaining = __HAL_DMA_GET_COUNTER(s_adc->DMA_Handle);
+  if (remaining > FRONT_IR_BUF_SAMPLES) return false;
+  write_index = (FRONT_IR_BUF_SAMPLES - remaining) % FRONT_IR_BUF_SAMPLES;
+  write_index -= write_index % FRONT_IR_SCAN_CHANNELS;
+
+  for (frame = 1u; frame <= SNAPSHOT_FRAMES; frame++)
+  {
+    uint32_t base = (write_index + FRONT_IR_BUF_SAMPLES -
+                     frame * FRONT_IR_SCAN_CHANNELS) % FRONT_IR_BUF_SAMPLES;
+    vin_sum += s_adc_buf[base + FRONT_IR_IDX_VIN];
+    vbat_sum += s_adc_buf[base + FRONT_IR_IDX_VBAT];
+    current_sum += s_adc_buf[base + FRONT_IR_IDX_BATT];
+  }
+
+  snapshot->vin_raw = (uint16_t)(vin_sum / SNAPSHOT_FRAMES);
+  snapshot->vbat_raw = (uint16_t)(vbat_sum / SNAPSHOT_FRAMES);
+  snapshot->current_raw = (uint16_t)(current_sum / SNAPSHOT_FRAMES);
+  snapshot->dma_index = (uint16_t)write_index;
+  return true;
+}
+
 static void FrontIrBumper_AdcDmaInit(void)
 {
   ADC_ChannelConfTypeDef sConfig = {0};

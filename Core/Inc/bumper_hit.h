@@ -38,7 +38,8 @@ int      BumperHit_Active(void);     /* 1 if any impact latched since last clear
 uint8_t  BumperHit_Events(void);     /* sticky bitmask: bit BUMPER_HIT_LEFT/RIGHT */
 uint32_t BumperHit_LastTick(void);   /* HAL tick of the most recent impact */
 void     BumperHit_Clear(void);      /* clear the latch after reacting */
-int      BumperHit_Level(int side);  /* instantaneous level (1=idle, 0=pressed) */
+int      BumperHit_Level(int side);  /* instantaneous raw GPIO level */
+int      BumperHit_Pressed(int side);/* level differs from boot-calibrated idle */
 const char *BumperHit_Name(int side);
 
 #ifdef __cplusplus

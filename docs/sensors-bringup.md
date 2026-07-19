@@ -38,6 +38,79 @@ The strict status tracker is `docs/bringup-checklist.md`.
 | Battery | `R72/R73`, `U4` | voltage/current monitoring | low-side current sense and/or thresholds |
 | Dock/base input | dock contacts, power OR path, maybe `U10` | charger/base detect | divider or comparator into STM32 |
 
+## J12 Touch Button and Backlight
+
+The top-panel touch-button assembly uses a seven-position main-board connector
+with five populated wires.  The detailed harness map and photographs are in
+`docs/j12-rgb-button.md`.
+
+- Main-board connector: `J12:1` red, `J12:2` black, `J12:3/4` unpopulated,
+  `J12:5` yellow, `J12:6` orange, `J12:7` green.
+- On the main PCB, `J12:3` through `J12:7` each have a separate resistor
+  pull-up to the 3.3 V rail.  Pins 3/4 are unused in this harness.  The
+  pull-ups establish the default levels of pins 5/6/7; their function and
+  active polarity are not assigned until a powered check.
+- Main-board ring-out: yellow `J12:5 -> PB15`, orange `J12:6 -> PB9`, and
+  green `J12:7 -> PA0`.  The initial `J21:7` notation cannot refer to J21,
+  which has only five positions, and is therefore corrected to `J12:7`.
+  The unused positions map as `J12:4 -> PA12` and `J12:3 -> PE14`.
+- The button PCB contains the large `PAD1` touch electrode, controller `U1`
+  marked `TCH223 / BC2035`, six LEDs `D1` through `D6`, and two SOT-23
+  components `Q1/Q2` in the backlight-driver area.
+- Physical U1 routes are: black `J12:2 -> U1:2`, red 3.3 V `J12:1 -> U1:5`,
+  and green `J12:7 -> U1:1 -> PA0`.  The available TTP223 reference datasheet
+  names these pins `VSS`, `VDD`, and `Q`; confirm black-to-GND and the live
+  PA0 level before assigning those electrical roles.
+- `PAD1` routes through `R2` and `C1` to the controller sensing network.
+- Orange `J12:6 -> R11 -> PB9`; yellow `J12:5 -> R12 -> PB15`.  Their
+  electrical function, LED association, and active polarity are not assigned.
+
+Any remaining J12 work is behavioural: check black against GND, measure the
+idle/touch level at `PA0`, and measure how `PB15`/`PB9` affect the button
+board. It is deliberately deferred and is not part of the current
+robot-platform mapping queue.
+
+## J21 Unpopulated Header beside the Touch Button
+
+`J21` is an unpopulated five-position connector beside the button.  Its routes
+are fully recorded, but it has no attached peripheral:
+
+- `J21:1 = GND`.
+- `J21:2` reaches `J17:8`, the direct 5 V rail.
+- `J21:3 -> PB12`, `J21:4 -> PD11`, and `J21:5 -> PB13`.
+
+It is a spare/option header; do not configure its three GPIOs until a new
+peripheral is deliberately connected.
+
+## Disconnected Original Peripherals
+
+The complete list of currently disconnected original peripheral connectors is
+`J19`, `J11`, `J6`, `J8`, `J16`, and `J18`.  `J21` and `J23` are separate
+unpopulated option footprints and are not part of this list.
+
+- `J11` is the disconnected two-pin mini pump.  Its control path is
+  `PE9 -> Q30 -> Q29 -> J11`; reported/probable detail: `J11:1 -> Q29 -> Q30`.
+  Direct continuity and pump-contact polarity are deferred; this pump is not
+  required for the current robot platform.
+- `J16` is a disconnected three-pin Hall sensor of the original equipment,
+  symmetric to J18. Its actual role is unknown; no corresponding magnet was
+  found and it was likely not used.
+  Pin 1 joins the filtered right wheel-encoder path, pin 2 is GND, and pin 3
+  remains unmapped.
+- `J19` is the disconnected two-pin motor for the angular side brush. Pin 2
+  is `BAT_PLUS`; the pin-1 driver path remains unmapped. Probable: its shunt
+  path goes to channel 2 of `U10`, and `Q24` is its power switch; confirm both
+  by direct continuity.
+- `J8` was the original main vacuum pump.  It is a four-pin connector: pump
+  positive `J8:1 -> Q18`, pump negative `J8:2` goes through a shunt, while
+  J8:3/4 had no pump wires but do have a local passive network.  `U3` is on
+  the shunt path; its exact electrical role is not assigned.
+- `J6` is the disconnected two-pin motor for the drum brush in the main debris
+  compartment. Its current path has its own shunts and goes to the second
+  channel of `U3`; contact polarity and the motor-driver path are not mapped.
+- `J18` is the disconnected three-pin Hall sensor that detects the dust-bin
+  magnet.  Its individual pin map remains to be measured.
+
 ## Probing Order
 
 1. Power off, continuity mode:

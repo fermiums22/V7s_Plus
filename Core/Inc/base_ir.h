@@ -4,10 +4,9 @@
   * @brief   Dock/base IR-beacon receivers (x5) - direction finding for homing.
   *
   *  Five demodulated IR receivers look at the charging dock's modulated beacon.
-  *  Each output idles HIGH and pulses LOW while it sees the beacon, so the
-  *  fraction of low-time over a short window = how strongly that direction sees
-  *  the dock. Unlike the reflective sensors these need NO emitter/carrier of our
-  *  own - they listen to the dock. Polled (no interrupt needed) in the main loop.
+  *  Each output idles HIGH and pulses LOW. Both-edge EXTI plus the shared 1 MHz
+  *  timer decode the measured dock frames; arbitrary activity is rejected.
+  *  Unlike the reflective sensors these need no emitter/carrier of our own.
   *
   *     BASE_IR_FRONT_L  on-board front-left  -> PB11
   *     BASE_IR_FRONT_R  on-board front-right -> PE15
@@ -37,13 +36,21 @@ typedef enum
   BASE_IR_COUNT
 } BaseIrDir;
 
-/* Live per-direction data (read by console / homing logic). */
+/* Live per-direction data (read by console / homing logic).
+ *
+ * activity is a filtered 0..1000 confidence derived only from complete valid
+ * dock frames. seen requires two valid frames and has a timed release. Noise,
+ * a hand remote, and a receiver stuck LOW therefore cannot look like the dock. */
 extern volatile uint8_t  g_base_ir_level[BASE_IR_COUNT];    /* last raw level (1 idle, 0 active-low) */
 extern volatile uint16_t g_base_ir_activity[BASE_IR_COUNT]; /* low-time over last window, per-mille (0..1000) */
-extern volatile uint8_t  g_base_ir_seen[BASE_IR_COUNT];     /* 1 = beacon seen this window */
+extern volatile uint8_t  g_base_ir_seen[BASE_IR_COUNT];     /* 1 = qualified, stable beacon */
 
 void        BaseIr_Init(void);
-void        BaseIr_Task(void);       /* sample fast; call each main loop */
+void        BaseIr_Task(void);       /* update confidence; call each main loop */
+/* Feed every EXTI transition. timestamp_us is the shared free-running 1 MHz
+ * timer value sampled at the edge. IrRemote_OnEdge owns that timer and calls
+ * this hook; GPIO configuration and EXTI dispatch remain CubeMX/main.c owned. */
+void        BaseIr_OnEdge(BaseIrDir dir, uint8_t level_after, uint16_t timestamp_us);
 const char *BaseIr_Name(int dir);    /* short label, or 0 */
 int         BaseIr_Direction(void);  /* strongest seen direction, or -1 if none */
 

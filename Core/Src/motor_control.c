@@ -25,7 +25,7 @@
 #define MOTOR_FAULT_HOLD_MS 8
 /* Stall: commanded with drive applied but wheel not turning this long. */
 #define MOTOR_MOVING_EDGES_PER_S 15
-#define MOTOR_STALL_MS 200
+#define MOTOR_STALL_MS 1000
 
 typedef struct
 {
@@ -93,6 +93,21 @@ static void fault_sample(void)
 
   for (s = 0; s < 2; s++)
   {
+    const int16_t pwm = (s == MOTOR_LEFT) ? g_motor_l_pwm_command : g_motor_r_pwm_command;
+
+    /* DRV8801 nFAULT is explicitly undefined while nSLEEP is inactive and may
+     * read either low or high.  The board's nSLEEP/MODE rail follows the shared
+     * switched sensor supply, so an idle bridge must not create a sticky fault
+     * before motion even starts.  Monitor nFAULT only while ENABLE PWM is
+     * actually being applied; real OCP/thermal faults are still latched and
+     * stop the bridge on the next task pass. */
+    if (pwm == 0)
+    {
+      s_fault[s].raw_prev = 0u;
+      s_fault[s].ever_low = 0u;
+      continue;
+    }
+
     uint8_t raw = (HAL_GPIO_ReadPin(fault_port((MotorSide)s), fault_pin((MotorSide)s)) == GPIO_PIN_RESET) ? 1u : 0u;
     if (raw)
     {

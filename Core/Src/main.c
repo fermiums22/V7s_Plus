@@ -31,6 +31,10 @@
 #include "bumper_hit.h"
 #include "caster_odo.h"
 #include "ir_remote.h"
+#include "modbus_slave.h"
+#include "robot_button.h"
+#include "docking.h"
+#include "charge_control.h"
 
 /* USER CODE END Includes */
 
@@ -62,6 +66,8 @@ TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim6;
+TIM_HandleTypeDef htim15;
+TIM_HandleTypeDef htim17;
 
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef hdma_usart1_rx;
@@ -82,8 +88,10 @@ static void MX_ADC_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
-static void MX_USART1_UART_Init(void);
 static void MX_TIM6_Init(void);
+static void MX_TIM15_Init(void);
+static void MX_TIM17_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -127,8 +135,10 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
-  MX_USART1_UART_Init();
   MX_TIM6_Init();
+  MX_TIM15_Init();
+  MX_TIM17_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 #if MOTOR_TEST_ENABLE
   MotorControl_Init(&htim3, &hadc);
@@ -142,9 +152,13 @@ int main(void)
   BaseIr_Init();    /* 5 dock/base IR-beacon receivers (polled) for homing direction */
   BumperHit_Init(); /* PB5/PE12 impact sensors on EXTI -> instant latched hit status */
   CasterOdo_Init(); /* J20 front-caster odometry: U10 OUT1 -> PD2 EXTI2 edge counter */
-  IrRemote_Init(&htim6); /* NEC decode + direction on the 5 IR rx (EXTI + TIM6 us clock) */
+  IrRemote_Init(&htim6); /* timestamp all five base-IR EXTI edges at 1 us */
   MotorControl_Init(&htim3, &hadc);  /* wheels: PWM TIM3 + encoders (ADC handle unused) */
+  ChargeControl_Init(&htim3); /* PC7/TIM3_CH2: 20 kHz active-high charger PWM */
+  Docking_Init(); /* slow local base-IR homing; remains idle until Modbus coil 4 */
+  RobotButton_Init(&htim15, &htim17); /* J12 touch + two hardware-PWM LED channels */
   Console_Init();   /* USART1 (JP1) RX DMA ring + IRQ-driven TX ring */
+  ModbusSlave_Init(); /* ESP32-S3 Modbus RTU slave, address 1 */
   Cmd_Init();
   Cmd_Banner();
   Buzzer_Init();    /* BUZZER1 on PA11 = TIM1_CH4 (driver-owned) */
@@ -205,11 +219,17 @@ int main(void)
     FrontIrBumper_Task();
     CliffIr_Task();
     BaseIr_Task();        /* poll the 5 dock-beacon receivers (homing strength) */
-    IrRemote_Task();      /* merge per-receiver NEC decodes -> command + direction */
+    RobotButton_Task();   /* debounce PA0; a press toggles the normal enable state */
+    Docking_Task();       /* local low-speed IR homing, guarded by all safety inputs */
     MotorControl_Task();  /* brakes on a latched bumper hit (checked inside) */
+    ChargeControl_Task(); /* 20 ms safe soft-start, CC/CV and hard-limit charger loop */
     {
       uint8_t rx_c; int rx_port;
-      while (Console_ReadByte(&rx_c, &rx_port)) Cmd_FeedByte(rx_port, (char)rx_c);
+      while (Console_ReadByte(&rx_c, &rx_port))
+      {
+        if (!ModbusSlave_FeedByte(rx_c)) Cmd_FeedByte(rx_port, (char)rx_c);
+      }
+      ModbusSlave_Task();
       Cmd_StreamTask();
       Buzzer_Task();
     }
@@ -568,6 +588,10 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
@@ -614,6 +638,133 @@ static void MX_TIM6_Init(void)
   /* USER CODE BEGIN TIM6_Init 2 */
 
   /* USER CODE END TIM6_Init 2 */
+
+}
+
+/**
+  * @brief TIM15 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM15_Init(void)
+{
+
+  /* USER CODE BEGIN TIM15_Init 0 */
+
+  /* USER CODE END TIM15_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM15_Init 1 */
+
+  /* USER CODE END TIM15_Init 1 */
+  htim15.Instance = TIM15;
+  htim15.Init.Prescaler = 47;
+  htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim15.Init.Period = 999;
+  htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim15.Init.RepetitionCounter = 0;
+  htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim15) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim15, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim15, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim15, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM15_Init 2 */
+
+  /* USER CODE END TIM15_Init 2 */
+  HAL_TIM_MspPostInit(&htim15);
+
+}
+
+/**
+  * @brief TIM17 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM17_Init(void)
+{
+
+  /* USER CODE BEGIN TIM17_Init 0 */
+
+  /* USER CODE END TIM17_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM17_Init 1 */
+
+  /* USER CODE END TIM17_Init 1 */
+  htim17.Instance = TIM17;
+  htim17.Init.Prescaler = 47;
+  htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim17.Init.Period = 999;
+  htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim17.Init.RepetitionCounter = 0;
+  htim17.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim17) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim17) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim17, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim17, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM17_Init 2 */
+
+  /* USER CODE END TIM17_Init 2 */
+  HAL_TIM_MspPostInit(&htim17);
 
 }
 
@@ -704,17 +855,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : BASE_IR_RIGHT_Pin MOTOR_R_ENC_SIGNAL_Pin BASE_IR_FRONT_R_Pin */
-  GPIO_InitStruct.Pin = BASE_IR_RIGHT_Pin|MOTOR_R_ENC_SIGNAL_Pin|BASE_IR_FRONT_R_Pin;
+  /*Configure GPIO pins : BASE_IR_RIGHT_Pin MOTOR_R_ENC_SIGNAL_Pin BUMPER_HIT_RIGHT_Pin BASE_IR_FRONT_R_Pin */
+  GPIO_InitStruct.Pin = BASE_IR_RIGHT_Pin|MOTOR_R_ENC_SIGNAL_Pin|BUMPER_HIT_RIGHT_Pin|BASE_IR_FRONT_R_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BUMPER_HIT_RIGHT_Pin */
-  GPIO_InitStruct.Pin = BUMPER_HIT_RIGHT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(BUMPER_HIT_RIGHT_GPIO_Port, &GPIO_InitStruct);
+  /*Configure GPIO pin : ROBOT_TOUCH_BUTTON_Pin */
+  GPIO_InitStruct.Pin = ROBOT_TOUCH_BUTTON_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(ROBOT_TOUCH_BUTTON_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : FRONT_IR_Q11_PULSE_Pin MOTOR_L_PHASE_Pin */
   GPIO_InitStruct.Pin = FRONT_IR_Q11_PULSE_Pin|MOTOR_L_PHASE_Pin;
@@ -723,11 +874,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BASE_IR_FRONT_L_Pin */
-  GPIO_InitStruct.Pin = BASE_IR_FRONT_L_Pin;
+  /*Configure GPIO pins : BASE_IR_FRONT_L_Pin BUMPER_HIT_LEFT_Pin */
+  GPIO_InitStruct.Pin = BASE_IR_FRONT_L_Pin|BUMPER_HIT_LEFT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(BASE_IR_FRONT_L_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : MOTOR_L_NFAULT_Pin MOTOR_R_NFAULT_Pin */
   GPIO_InitStruct.Pin = MOTOR_L_NFAULT_Pin|MOTOR_R_NFAULT_Pin;
@@ -748,13 +899,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(Q24_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BUMPER_HIT_LEFT_Pin */
-  GPIO_InitStruct.Pin = BUMPER_HIT_LEFT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(BUMPER_HIT_LEFT_GPIO_Port, &GPIO_InitStruct);
-
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_1_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_1_IRQn);
+
   HAL_NVIC_SetPriority(EXTI2_3_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(EXTI2_3_IRQn);
 
@@ -775,6 +923,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   switch (GPIO_Pin)
   {
+    case ROBOT_TOUCH_BUTTON_Pin:      /* PA0  EXTI0 */
+      RobotButton_OnEdge();
+      break;
     case BUMPER_HIT_LEFT_Pin:        /* PB5  EXTI5  */
     case BUMPER_HIT_RIGHT_Pin:       /* PE12 EXTI12 */
       BumperHit_OnEdge(GPIO_Pin);
@@ -807,28 +958,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 /* USER CODE END 4 */
-
-/**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM15 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  /* USER CODE BEGIN Callback 0 */
-
-  /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM15)
-  {
-    HAL_IncTick();
-  }
-  /* USER CODE BEGIN Callback 1 */
-
-  /* USER CODE END Callback 1 */
-}
 
 /**
   * @brief  This function is executed in case of error occurrence.

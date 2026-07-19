@@ -10,6 +10,7 @@ Update the status after every continuity or powered test.
 - `probing`: current target for continuity/voltage tests.
 - `unknown`: not traced yet.
 - `removed`: original assembly removed, connector can be repurposed after mapping.
+- `deferred`: recorded, but deliberately outside the current robot-platform scope.
 
 ## Already Connected In Firmware
 
@@ -33,7 +34,7 @@ Update the status after every continuity or powered test.
 | 6 | partial | `J15` | rear IR receiver | OUT mapped: `J15:3` (device pin1, demod OUT) -> series R -> `PD4` (digital input). Still TODO: VCC/GND (`J15:1`/`J15:2`) and any power-enable |
 | 7 | firmware-ready (sense) | `J3` | front right cliff IR sensor | sense `J3:3`->`PC4`(ADC IN14), now live in the 8-channel `front_ir_bumper.c` demod. Emitter rides J4->J3->J2 VBAT chain (Q11 carrier). Rest of colodka per cliff 4-pin map |
 | 8 | firmware-ready (sense) | `J4` | front left cliff IR sensor | sense `J4:3`->`PC2`(ADC IN12), now live in the 8-channel demod. Emitter = Q4 chain head. Rest of colodka per cliff 4-pin map |
-| 9 | unknown | `J12` | touch button with RGB backlight | map VCC/GND/touch/R/G/B or serial/controller lines |
+| 9 | deferred | `J12` | touch button with RGB backlight | Harness and STM32 routes are recorded in `docs/j12-rgb-button.md`. Live touch/RGB polarity is intentionally not part of the robot-platform mapping queue. |
 | 10 | mapped | buzzer (`Q17` / `BUZZER1`) | sounder / beeper | driver `Q17` (same current-driver topology + 10 ohm shunt as front IR LED drivers); control to `PA11` via RC. Next: confirm magnetic vs piezo, then drive `PA11` as timer PWM for tones |
 | 11 | unknown | `U4`, `R72/R73` | battery current / voltage monitor | trace U4 outputs pin 1/pin 7 to STM32 or power logic |
 | 12 | unknown | dock contacts / charge path | dock/base charge detect | find divider/comparator output that changes with dock voltage |
@@ -45,12 +46,12 @@ actuators, servos, sensors, relays, lighting, or other robot organs.
 
 | Status | Connector | Original / suspected assembly | Repurpose notes | Next exact check |
 |---|---|---|---|---|
-| removed | `J18` | removed vacuum-related assembly | candidate spare connector | identify pin count, wire colors, GND/VCC, STM32/driver path |
-| removed | `J16` | removed assembly / already partly tied into mixed RC signal | be careful: J16 pin 1 relates to right encoder RC path; not free until resolved | continue mapping pin 3 and any powered behavior |
-| removed | `J8` | removed brush/vacuum-related assembly | candidate spare connector | identify whether it is motor drive, switch, or sensor |
-| removed | `J6` | removed brush/vacuum-related assembly | candidate spare connector | identify whether it is motor drive, switch, or sensor |
-| firmware-ready / mixed | `J14` | right wheel connector, not free | keep for right drive; do not repurpose | no repurpose unless wheel system changes |
-| removed | `J19` | removed small vacuum / dust / pressure sensor candidate | candidate sensor connector or analog input | map to Q25/D19/R161 area and STM32 if present |
+| partial | `J18` | removed three-pin Hall sensor for dust-bin magnet presence | sensor purpose known | map VCC/GND/OUT and STM32 destination |
+| partial | `J16` | removed three-pin Hall sensor of the original equipment, symmetric to J18 | actual role unknown; no corresponding magnet found and it was likely not used. Pin 1 joins the right-encoder RC path and pin 2 is GND | map pin 3 and establish actual behaviour |
+| partial | `J8` | removed main vacuum pump | 4-pin connector: pin 1 pump plus -> `Q18`; pin 2 pump minus via shunt in the `U3` path; pins 3/4 had no pump wires | read shunt reference/value and trace Q18 gate control before reuse |
+| partial | `J6` | removed drum-brush motor in the main debris compartment | current path has its own shunts and reaches U3 channel 2 | map contact polarity and motor-driver path before reuse |
+| partial | `J19` | removed angular side-brush motor | pin 2 is `BAT_PLUS`; probable: Q24 is its power switch and its shunt path goes to U10 channel 2 | trace Q24 power pins, pin 1 path, and U10 path before reuse |
+| deferred | `J11` | disconnected original two-pin mini pump | control cascade recorded: `PE9 -> Q30 -> Q29 -> J11` | pump is outside the current robot-platform scope; retain the notes if it is restored later |
 
 ## Strict Probing Procedure For Each Connector
 
